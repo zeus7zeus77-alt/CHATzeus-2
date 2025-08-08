@@ -30,7 +30,9 @@ const { OAuth2Client } = require('google-auth-library');
 const cors = require('cors'); // Import cors
 const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
-
+const User = require('./models/user.model.js');
+const Chat = require('./models/chat.model.js');
+const Settings = require('./models/settings.model.js');
 
 // =================================================================
 // 3. إعداد تطبيق Express والخادم
@@ -89,23 +91,46 @@ app.get('/auth/google/callback', async (req, res) => {
         const { code } = req.query;
         const { tokens } = await oauth2Client.getToken(code);
         oauth2Client.setCredentials(tokens);
-        const userInfoResponse = await oauth2Client.request({ url: 'https://www.googleapis.com/oauth2/v3/userinfo' }  );
+        const userInfoResponse = await oauth2Client.request({ url: 'https://www.googleapis.com/oauth2/v3/userinfo' } );
+        const userInfo = userInfoResponse.data;
 
-        // إنشاء حمولة التوكن
+        // ابحث عن المستخدم في قاعدة البيانات أو أنشئ مستخدمًا جديدًا
+        let user = await User.findOne({ googleId: userInfo.sub });
+
+        if (!user) {
+            // مستخدم جديد
+            user = new User({
+                googleId: userInfo.sub, // .sub هو المعرف الفريد من جوجل
+                email: userInfo.email,
+                name: userInfo.name,
+                picture: userInfo.picture,
+            });
+            await user.save();
+
+            // إنشاء إعدادات افتراضية للمستخدم الجديد
+            const newSettings = new Settings({ user: user._id });
+            await newSettings.save();
+            console.log(`✨ New user created and saved: ${user.email}`);
+        } else {
+            console.log(`👋 Welcome back, user: ${user.email}`);
+        }
+
+        // إنشاء حمولة التوكن مع معرّف قاعدة البيانات
         const payload = {
-            name: userInfoResponse.data.name,
-            email: userInfoResponse.data.email,
-            picture: userInfoResponse.data.picture,
+            id: user._id, // ✨ الأهم: استخدام معرّف قاعدة البيانات
+            name: user.name,
+            email: user.email,
+            picture: user.picture,
         };
 
         // توقيع التوكن
         const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
 
         // إعادة التوجيه إلى الواجهة الأمامية مع التوكن
-        res.redirect(`https://chatzeus.vercel.app/?token=${token}`);
+        res.redirect(`https://chatzeus.vercel.app/?token=${token}` );
 
     } catch (error) {
-        console.error('Authentication error:', error);
+        console.error('Authentication callback error:', error);
         res.redirect('https://chatzeus.vercel.app/?auth_error=true' );
     }
 });
