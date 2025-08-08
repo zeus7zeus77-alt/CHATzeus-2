@@ -29,6 +29,7 @@ const express = require('express');
 const { OAuth2Client } = require('google-auth-library');
 const cors = require('cors'); // Import cors
 const jwt = require('jsonwebtoken');
+const mongoose = require('mongoose');
 
 
 // =================================================================
@@ -255,6 +256,15 @@ function streamOpenAICompatibleAPI(options, body, res) {
     });
 }
 
+// =================================================================
+// ✨ الاتصال بقاعدة البيانات
+// =================================================================
+mongoose.connect(process.env.MONGODB_URI)
+    .then(() => console.log('✅ Successfully connected to MongoDB Atlas.'))
+    .catch(err => {
+        console.error('❌ Could not connect to MongoDB Atlas.', err);
+        process.exit(1); // إيقاف الخادم إذا فشل الاتصال
+    });
 
 // =================================================================
 // 7. تشغيل الخادم
