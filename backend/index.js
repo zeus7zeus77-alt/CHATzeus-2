@@ -149,34 +149,44 @@ app.post('/api/chat', async (req, res) => {
 // ✨ نقاط نهاية جديدة للبيانات (تضاف في القسم 5)
 // =================================================================
 
-// جلب جميع بيانات المستخدم (المحادثات والإعدادات)
+// جلب جميع بيانات المستخدم (المحادثات والإعدادات) - نسخة مضادة للرصاص
 app.get('/api/data', verifyToken, async (req, res) => {
     try {
-        // التحقق من وجود المستخدم في الطلب لزيادة الأمان
+        // 1. تحقق من وجود المستخدم والـ ID في التوكن
         if (!req.user || !req.user.id) {
-            return res.status(400).json({ message: 'User ID not found in token' });
+            console.error('Validation Error: User or User ID not found in token payload.');
+            return res.status(401).json({ message: 'Invalid token: User ID missing.' });
         }
+        const userIdString = req.user.id;
+        console.log(`Attempting to fetch data for user ID: ${userIdString}`);
 
-        // ✨ الحل السحري: تحويل الـ ID النصي من التوكن إلى نوع ObjectId الذي تفهمه قاعدة البيانات
-        const userIdObject = new mongoose.Types.ObjectId(req.user.id);
+        // 2. ✨✨ الخطوة الجديدة والمهمة: تحقق من أن الـ ID صالح قبل محاولة التحويل ✨✨
+        if (!mongoose.Types.ObjectId.isValid(userIdString)) {
+            console.error(`Validation Error: Provided User ID "${userIdString}" is not a valid MongoDB ObjectId.`);
+            return res.status(400).json({ message: 'Invalid User ID format.' });
+        }
         
-        // استخدام الكائن المحوّل في الاستعلامات
+        // 3. قم بالتحويل فقط بعد التأكد من صلاحيته
+        const userIdObject = new mongoose.Types.ObjectId(userIdString);
+
+        // 4. ابحث عن البيانات باستخدام الـ ID الصالح
         const chats = await Chat.find({ user: userIdObject }).sort({ order: -1 });
         let settings = await Settings.findOne({ user: userIdObject });
 
-        // إذا لم يكن للمستخدم إعدادات لسبب ما، أنشئها له
+        // 5. إذا لم توجد إعدادات، أنشئها
         if (!settings) {
             console.log(`No settings found for user ${userIdObject}, creating new ones.`);
             settings = new Settings({ user: userIdObject });
             await settings.save();
         }
 
+        console.log(`Successfully fetched data for user ${userIdObject}`);
         res.json({ chats, settings });
 
     } catch (error) {
-        console.error('Error fetching user data:', error);
-        // إرسال رسالة خطأ أكثر تفصيلاً لمساعدتنا في المستقبل
-        res.status(500).json({ message: 'Failed to fetch user data from server.', error: error.message });
+        // 6. في حالة حدوث أي خطأ آخر، قم بتسجيله وإرساله
+        console.error('FATAL: An unexpected error occurred while fetching user data:', error);
+        res.status(500).json({ message: 'An internal server error occurred.', error: error.message });
     }
 });
 
