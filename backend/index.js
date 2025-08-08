@@ -152,14 +152,22 @@ app.post('/api/chat', async (req, res) => {
 // جلب جميع بيانات المستخدم (المحادثات والإعدادات)
 app.get('/api/data', verifyToken, async (req, res) => {
     try {
-        const userId = req.user.id; // نحصل عليه من التوكن
+        // التحقق من وجود المستخدم في الطلب لزيادة الأمان
+        if (!req.user || !req.user.id) {
+            return res.status(400).json({ message: 'User ID not found in token' });
+        }
+
+        // ✨ الحل السحري: تحويل الـ ID النصي من التوكن إلى نوع ObjectId الذي تفهمه قاعدة البيانات
+        const userIdObject = new mongoose.Types.ObjectId(req.user.id);
         
-        const chats = await Chat.find({ user: userId }).sort({ order: -1 });
-        let settings = await Settings.findOne({ user: userId });
+        // استخدام الكائن المحوّل في الاستعلامات
+        const chats = await Chat.find({ user: userIdObject }).sort({ order: -1 });
+        let settings = await Settings.findOne({ user: userIdObject });
 
         // إذا لم يكن للمستخدم إعدادات لسبب ما، أنشئها له
         if (!settings) {
-            settings = new Settings({ user: userId });
+            console.log(`No settings found for user ${userIdObject}, creating new ones.`);
+            settings = new Settings({ user: userIdObject });
             await settings.save();
         }
 
@@ -167,7 +175,8 @@ app.get('/api/data', verifyToken, async (req, res) => {
 
     } catch (error) {
         console.error('Error fetching user data:', error);
-        res.status(500).json({ message: 'Failed to fetch user data' });
+        // إرسال رسالة خطأ أكثر تفصيلاً لمساعدتنا في المستقبل
+        res.status(500).json({ message: 'Failed to fetch user data from server.', error: error.message });
     }
 });
 
