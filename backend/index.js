@@ -45,8 +45,8 @@ app.use(cors({
 const oauth2Client = new OAuth2Client(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET,
-    `${process.env.SERVER_URL}/auth/google/callback`
-);
+    "https://chatzeus-production.up.railway.app/auth/google/callback" // <--- هذا هو الرابط الثابت والصحيح
+ );
 
 app.use(express.json({ limit: '50mb' }));
 app.use(session({
@@ -73,16 +73,16 @@ app.get('/auth/google/callback', async (req, res) => {
         const { code } = req.query;
         const { tokens } = await oauth2Client.getToken(code);
         oauth2Client.setCredentials(tokens);
-        const userInfoResponse = await oauth2Client.request({ url: 'https://www.googleapis.com/oauth2/v3/userinfo' } );
+        const userInfoResponse = await oauth2Client.request({ url: 'https://www.googleapis.com/oauth2/v3/userinfo' }  );
         req.session.user = {
             name: userInfoResponse.data.name,
             email: userInfoResponse.data.email,
             picture: userInfoResponse.data.picture,
         };
-        res.redirect('/');
+        res.redirect('https://chatzeus.vercel.app' );
     } catch (error) {
         console.error('Authentication error:', error);
-        res.redirect('/?auth_error=true');
+        res.redirect('https://chatzeus.vercel.app/?auth_error=true' );
     }
 });
 
