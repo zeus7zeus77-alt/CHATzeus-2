@@ -145,6 +145,93 @@ app.post('/api/chat', async (req, res) => {
     await handleChatRequest(req, res);
 });
 
+// =================================================================
+// ✨ نقاط نهاية جديدة للبيانات (تضاف في القسم 5)
+// =================================================================
+
+// جلب جميع بيانات المستخدم (المحادثات والإعدادات)
+app.get('/api/data', verifyToken, async (req, res) => {
+    try {
+        const userId = req.user.id; // نحصل عليه من التوكن
+        
+        const chats = await Chat.find({ user: userId }).sort({ order: -1 });
+        let settings = await Settings.findOne({ user: userId });
+
+        // إذا لم يكن للمستخدم إعدادات لسبب ما، أنشئها له
+        if (!settings) {
+            settings = new Settings({ user: userId });
+            await settings.save();
+        }
+
+        res.json({ chats, settings });
+
+    } catch (error) {
+        console.error('Error fetching user data:', error);
+        res.status(500).json({ message: 'Failed to fetch user data' });
+    }
+});
+
+// حفظ أو تحديث محادثة
+app.post('/api/chats', verifyToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const chatData = req.body;
+
+        // إذا كان للمحادثة ID، قم بتحديثها. وإلا، أنشئ واحدة جديدة.
+        if (chatData._id) {
+            const updatedChat = await Chat.findByIdAndUpdate(
+                chatData._id,
+                { ...chatData, user: userId }, // تأكد من أن المستخدم هو المالك
+                { new: true, runValidators: true }
+            );
+            res.json(updatedChat);
+        } else {
+            const newChat = new Chat({ ...chatData, user: userId });
+            await newChat.save();
+            res.status(201).json(newChat);
+        }
+    } catch (error) {
+        console.error('Error saving chat:', error);
+        res.status(500).json({ message: 'Failed to save chat' });
+    }
+});
+
+// تحديث الإعدادات
+app.put('/api/settings', verifyToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const settingsData = req.body;
+
+        const updatedSettings = await Settings.findOneAndUpdate(
+            { user: userId },
+            settingsData,
+            { new: true, upsert: true } // upsert: إذا لم تكن موجودة، أنشئها
+        );
+        res.json(updatedSettings);
+    } catch (error) {
+        console.error('Error updating settings:', error);
+        res.status(500).json({ message: 'Failed to update settings' });
+    }
+});
+
+// حذف محادثة
+app.delete('/api/chats/:chatId', verifyToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { chatId } = req.params;
+
+        const result = await Chat.findOneAndDelete({ _id: chatId, user: userId });
+
+        if (!result) {
+            return res.status(404).json({ message: 'Chat not found or user not authorized' });
+        }
+
+        res.status(200).json({ message: 'Chat deleted successfully' });
+    } catch (error) {
+        console.error('Error deleting chat:', error);
+        res.status(500).json({ message: 'Failed to delete chat' });
+    }
+});
 
 // =================================================================
 // 5. عرض الملفات الثابتة
