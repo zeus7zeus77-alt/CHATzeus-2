@@ -37,8 +37,6 @@ const cors = require('cors'); // Import cors
 const app = express();
 const server = http.createServer(app);
 
-app.set('trust proxy', 1);
-
 app.use(cors({
   origin: 'https://chatzeus.vercel.app',
   credentials: true
@@ -51,6 +49,11 @@ const oauth2Client = new OAuth2Client(
  );
 
 app.use(express.json({ limit: '50mb' }));
+
+// هذا السطر ضروري لكي يثق Express بالبروكسي الخاص بـ Railway
+// ويجب أن يكون قبل إعداد الجلسة مباشرةً
+app.set('trust proxy', 1);
+
 app.use(session({
     secret: process.env.SESSION_SECRET || 'fallback-secret-key',
     resave: false,
@@ -62,9 +65,6 @@ app.use(session({
         sameSite: 'none'    // هذا هو السطر السحري الذي يسمح بالكوكيز عبر النطاقات
     }
 } ));
-
-// هذا السطر ضروري لكي يثق Express بالبروكسي الخاص بـ Railway
-app.set('trust proxy', 1); 
 
 // =================================================================
 // 4. نقاط النهاية (Routes)
