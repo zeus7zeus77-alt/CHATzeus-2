@@ -53,9 +53,16 @@ app.use(session({
     secret: process.env.SESSION_SECRET || 'fallback-secret-key',
     resave: false,
     saveUninitialized: false,
-    cookie: { secure: false, httpOnly: true, maxAge: 1000 * 60 * 60 * 24 * 7 }
+    cookie: { 
+        secure: true,       // يجب أن يكون true لأننا نستخدم HTTPS
+        httpOnly: true, 
+        maxAge: 1000 * 60 * 60 * 24 * 7, // 7 أيام
+        sameSite: 'none'    // هذا هو السطر السحري الذي يسمح بالكوكيز عبر النطاقات
+    }
 } ));
 
+// هذا السطر ضروري لكي يثق Express بالبروكسي الخاص بـ Railway
+app.set('trust proxy', 1); 
 
 // =================================================================
 // 4. نقاط النهاية (Routes)
