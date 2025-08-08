@@ -37,6 +37,8 @@ const cors = require('cors'); // Import cors
 const app = express();
 const server = http.createServer(app);
 
+app.set('trust proxy', 1);
+
 app.use(cors({
   origin: 'https://chatzeus.vercel.app',
   credentials: true
@@ -94,9 +96,15 @@ app.get('/auth/google/callback', async (req, res) => {
 });
 
 app.get('/auth/logout', (req, res) => {
-    req.session.destroy(() => {
-        res.clearCookie('connect.sid');
-        res.redirect('/');
+    const logoutRedirectUrl = 'https://chatzeus.vercel.app'; // رابط الواجهة الأمامية
+    req.session.destroy((err ) => {
+        if (err) {
+            console.error("Error destroying session:", err);
+            return res.redirect(logoutRedirectUrl + '?logout_error=true');
+        }
+        // تأكد من مسح الكوكي من المسار الصحيح
+        res.clearCookie('connect.sid', { path: '/' }); 
+        res.redirect(logoutRedirectUrl);
     });
 });
 
