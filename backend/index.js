@@ -28,13 +28,19 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const express = require('express');
 const session = require('express-session');
 const { OAuth2Client } = require('google-auth-library');
+const cors = require('cors'); // Import cors
 
 
 // =================================================================
 // 3. إعداد تطبيق Express والخادم
 // =================================================================
 const app = express();
-const server = http.createServer(app );
+const server = http.createServer(app);
+
+app.use(cors({
+  origin: 'https://chatzeus.vercel.app',
+  credentials: true
+}));
 
 const oauth2Client = new OAuth2Client(
     process.env.GOOGLE_CLIENT_ID,
