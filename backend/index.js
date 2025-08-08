@@ -50,20 +50,22 @@ const oauth2Client = new OAuth2Client(
 
 app.use(express.json({ limit: '50mb' }));
 
-app.set('trust proxy', 1); 
+// هذا السطر ضروري لكي يثق Express بالبروكسي الخاص بـ Railway
+// ويجب أن يكون قبل إعداد الجلسة مباشرةً
+app.set('trust proxy', 1);
 
 app.use(session({
     secret: process.env.SESSION_SECRET || 'fallback-secret-key',
     resave: false,
     saveUninitialized: false,
     cookie: { 
-        secure: true,       // يجب أن يكون true لأننا نستخدم HTTPS
+        secure: true,
         httpOnly: true, 
         maxAge: 1000 * 60 * 60 * 24 * 7, // 7 أيام
-        sameSite: 'none'    // هذا هو السطر السحري الذي يسمح بالكوكيز عبر النطاقات
+        sameSite: 'none',
+        domain: 'chatzeus-production.up.railway.app'  // ✨ هذا هو السطر الحاسم الذي أضفناه
     }
 } ));
-
 
 // =================================================================
 // 4. نقاط النهاية (Routes)
@@ -95,9 +97,15 @@ app.get('/auth/google/callback', async (req, res) => {
 });
 
 app.get('/auth/logout', (req, res) => {
-    req.session.destroy(() => {
-        res.clearCookie('connect.sid');
-        res.redirect('/');
+    const logoutRedirectUrl = 'https://chatzeus.vercel.app'; // رابط الواجهة الأمامية
+    req.session.destroy((err ) => {
+        if (err) {
+            console.error("Error destroying session:", err);
+            return res.redirect(logoutRedirectUrl + '?logout_error=true');
+        }
+        // تأكد من مسح الكوكي من المسار الصحيح
+        res.clearCookie('connect.sid', { path: '/' }); 
+        res.redirect(logoutRedirectUrl);
     });
 });
 
