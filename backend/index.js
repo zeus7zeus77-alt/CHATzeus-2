@@ -26,9 +26,9 @@ const http = require('http' );
 const https = require('https' );
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const express = require('express');
-const session = require('express-session');
 const { OAuth2Client } = require('google-auth-library');
 const cors = require('cors'); // Import cors
+const jwt = require('jsonwebtoken');
 
 
 // =================================================================
@@ -50,25 +50,30 @@ const oauth2Client = new OAuth2Client(
 
 app.use(express.json({ limit: '50mb' }));
 
-// هذا السطر ضروري لكي يثق Express بالبروكسي الخاص بـ Railway
-// ويجب أن يكون قبل إعداد الجلسة مباشرةً
-app.set('trust proxy', 1);
-
-app.use(session({
-    secret: process.env.SESSION_SECRET || 'fallback-secret-key',
-    resave: false,
-    saveUninitialized: false,
-    cookie: { 
-        secure: true,
-        httpOnly: true, 
-        maxAge: 1000 * 60 * 60 * 24 * 7, // 7 أيام
-        sameSite: 'none',
-        domain: 'chatzeus-production.up.railway.app'  // ✨ هذا هو السطر الحاسم الذي أضفناه
-    }
-} ));
 
 // =================================================================
-// 4. نقاط النهاية (Routes)
+// 4. Middleware للتحقق من التوكن
+// =================================================================
+function verifyToken(req, res, next) {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1]; // استخراج التوكن من 'Bearer TOKEN'
+
+    if (token == null) {
+        return res.status(401).json({ loggedIn: false, message: 'No token provided.' });
+    }
+
+    jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
+        if (err) {
+            return res.status(403).json({ loggedIn: false, message: 'Token is not valid.' });
+        }
+        req.user = user;
+        next();
+    });
+}
+
+
+// =================================================================
+// 5. نقاط النهاية (Routes)
 // =================================================================
 app.get('/auth/google', (req, res) => {
     const authorizeUrl = oauth2Client.generateAuthUrl({
@@ -84,37 +89,30 @@ app.get('/auth/google/callback', async (req, res) => {
         const { tokens } = await oauth2Client.getToken(code);
         oauth2Client.setCredentials(tokens);
         const userInfoResponse = await oauth2Client.request({ url: 'https://www.googleapis.com/oauth2/v3/userinfo' }  );
-        req.session.user = {
+
+        // إنشاء حمولة التوكن
+        const payload = {
             name: userInfoResponse.data.name,
             email: userInfoResponse.data.email,
             picture: userInfoResponse.data.picture,
         };
-        res.redirect('https://chatzeus.vercel.app' );
+
+        // توقيع التوكن
+        const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
+
+        // إعادة التوجيه إلى الواجهة الأمامية مع التوكن
+        res.redirect(`https://chatzeus.vercel.app/?token=${token}`);
+
     } catch (error) {
         console.error('Authentication error:', error);
         res.redirect('https://chatzeus.vercel.app/?auth_error=true' );
     }
 });
 
-app.get('/auth/logout', (req, res) => {
-    const logoutRedirectUrl = 'https://chatzeus.vercel.app'; // رابط الواجهة الأمامية
-    req.session.destroy((err ) => {
-        if (err) {
-            console.error("Error destroying session:", err);
-            return res.redirect(logoutRedirectUrl + '?logout_error=true');
-        }
-        // تأكد من مسح الكوكي من المسار الصحيح
-        res.clearCookie('connect.sid', { path: '/' }); 
-        res.redirect(logoutRedirectUrl);
-    });
-});
-
-app.get('/api/user', (req, res) => {
-    if (req.session && req.session.user) {
-        res.json({ loggedIn: true, user: req.session.user });
-    } else {
-        res.json({ loggedIn: false });
-    }
+app.get('/api/user', verifyToken, (req, res) => {
+    // إذا وصل الطلب إلى هنا، فالـ middleware قد تحقق من التوكن بنجاح
+    // ومعلومات المستخدم موجودة في req.user
+    res.json({ loggedIn: true, user: req.user });
 });
 
 app.post('/api/chat', async (req, res) => {
