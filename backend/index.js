@@ -141,7 +141,7 @@ app.get('/api/user', verifyToken, (req, res) => {
     res.json({ loggedIn: true, user: req.user });
 });
 
-app.post('/api/chat', async (req, res) => {
+app.post('/api/chat', verifyToken, async (req, res) => {
     await handleChatRequest(req, res);
 });
 
@@ -287,11 +287,19 @@ const keyManager = {
 async function handleChatRequest(req, res) {
     try {
         const payload = req.body;
+        // ✨ التحقق من وجود الإعدادات والمزود قبل أي شيء آخر ✨
+        if (!payload.settings || !payload.settings.provider) {
+            // إذا لم يكن هناك مزود، أرسل خطأ واضحًا بدلاً من الانهيار
+            throw new Error('Provider information is missing in the request settings.');
+        }
         const { provider } = payload.settings;
+
+        // الآن يمكننا استخدام 'provider' بأمان
         if (provider === 'gemini') await handleGeminiRequest(payload, res);
         else if (provider === 'openrouter') await handleOpenRouterRequest(payload, res);
         else if (provider.startsWith('custom_')) await handleCustomProviderRequest(payload, res);
-        else throw new Error('مزود غير معروف.');
+        else throw new Error(`مزود غير معروف: ${provider}`);
+        
     } catch (error) {
         console.error('Error processing chat request:', error.message);
         res.status(500).json({ error: error.message });
