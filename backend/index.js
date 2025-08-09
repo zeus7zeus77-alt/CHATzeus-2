@@ -32,47 +32,72 @@ const http = require('http' );
 const https = require('https' );
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const express = require('express');
-const session = require('express-session');
 const { OAuth2Client } = require('google-auth-library');
 const cors = require('cors'); // Import cors
-
+const jwt = require('jsonwebtoken');
+const mongoose = require('mongoose');
+const User = require('./models/user.model.js');
+const Chat = require('./models/chat.model.js');
+const Settings = require('./models/settings.model.js');
 
 // =================================================================
 // 3. إعداد تطبيق Express والخادم
 // =================================================================
 const app = express();
-const server = http.createServer(app);
+const server = http.createServer(app );
 
+// ✨ إعدادات CORS النهائية والمحصّنة ✨
 app.use(cors({
+  origin: 'https://chatzeus.vercel.app', // السماح لواجهتك الأمامية فقط
+  credentials: true, // السماح بإرسال الكوكيز والتوكن
+  allowedHeaders: ['Content-Type', 'Authorization'] // السماح بالهيدرات الضرورية
+} ));
+
+// معالجة طلبات OPTIONS تلقائيًا (مهم لـ pre-flight)
+app.options('*', cors({
   origin: 'https://chatzeus.vercel.app',
-  credentials: true
-}));
+  credentials: true,
+  allowedHeaders: ['Content-Type', 'Authorization']
+} ));
 
 const oauth2Client = new OAuth2Client(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET,
-    "https://chatzeus-production.up.railway.app/auth/google/callback" // <--- هذا هو الرابط الثابت والصحيح
- );
+    "https://chatzeus-production.up.railway.app/auth/google/callback"
+  );
 
 app.use(express.json({ limit: '50mb' }));
 
-app.set('trust proxy', 1); 
 
-app.use(session({
-    secret: process.env.SESSION_SECRET || 'fallback-secret-key',
-    resave: false,
-    saveUninitialized: false,
-    cookie: { 
-        secure: true,       // يجب أن يكون true لأننا نستخدم HTTPS
-        httpOnly: true, 
-        maxAge: 1000 * 60 * 60 * 24 * 7, // 7 أيام
-        sameSite: 'none'    // هذا هو السطر السحري الذي يسمح بالكوكيز عبر النطاقات
-    }
-} ));
+
+if (!process.env.JWT_SECRET) {
+  console.warn('⚠️ JWT_SECRET is missing. Token verification may fail.');
+}
 
 
 // =================================================================
-// 4. نقاط النهاية (Routes)
+// 4. Middleware للتحقق من التوكن
+// =================================================================
+function verifyToken(req, res, next) {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1]; // استخراج التوكن من 'Bearer TOKEN'
+
+    if (token == null) {
+        return res.status(401).json({ loggedIn: false, message: 'No token provided.' });
+    }
+
+    jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
+        if (err) {
+            return res.status(401).json({ loggedIn: false, message: 'Token is not valid or expired.' });
+        }
+        req.user = user;
+        next();
+    });
+}
+
+
+// =================================================================
+// 5. نقاط النهاية (Routes)
 // =================================================================
 app.get('/auth/google', (req, res) => {
     const authorizeUrl = oauth2Client.generateAuthUrl({
@@ -87,38 +112,166 @@ app.get('/auth/google/callback', async (req, res) => {
         const { code } = req.query;
         const { tokens } = await oauth2Client.getToken(code);
         oauth2Client.setCredentials(tokens);
-        const userInfoResponse = await oauth2Client.request({ url: 'https://www.googleapis.com/oauth2/v3/userinfo' }  );
-        req.session.user = {
-            name: userInfoResponse.data.name,
-            email: userInfoResponse.data.email,
-            picture: userInfoResponse.data.picture,
-        };
-        res.redirect('https://chatzeus.vercel.app' );
+        const userInfoResponse = await oauth2Client.request({ url: 'https://www.googleapis.com/oauth2/v3/userinfo' } );
+        const userInfo = userInfoResponse.data;
+
+        // ابحث عن المستخدم في قاعدة البيانات أو أنشئ مستخدمًا جديدًا
+        let user = await User.findOne({ googleId: userInfo.sub });
+
+        if (!user) {
+            // مستخدم جديد
+            user = new User({
+                googleId: userInfo.sub, // .sub هو المعرف الفريد من جوجل
+                email: userInfo.email,
+                name: userInfo.name,
+                picture: userInfo.picture,
+            });
+            await user.save();
+
+            // إنشاء إعدادات افتراضية للمستخدم الجديد
+            const newSettings = new Settings({ user: user._id });
+            await newSettings.save();
+            console.log(`✨ New user created and saved: ${user.email}`);
+        } else {
+            console.log(`👋 Welcome back, user: ${user.email}`);
+        }
+
+        // إنشاء حمولة التوكن مع معرّف قاعدة البيانات
+        // داخل مسار /auth/google/callback بعد إنشاء (أو إيجاد) المستخدم
+const payload = {
+  id: String(user._id), // ✅ اجعله نصًا صريحًا
+  name: user.name,
+  email: user.email,
+  picture: user.picture,
+};
+
+const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
+
+        // إعادة التوجيه إلى الواجهة الأمامية مع التوكن
+        res.redirect(`https://chatzeus.vercel.app/?token=${token}` );
+
     } catch (error) {
-        console.error('Authentication error:', error);
+        console.error('Authentication callback error:', error);
         res.redirect('https://chatzeus.vercel.app/?auth_error=true' );
     }
 });
 
-app.get('/auth/logout', (req, res) => {
-    req.session.destroy(() => {
-        res.clearCookie('connect.sid');
-        res.redirect('/');
-    });
+app.get('/api/user', verifyToken, (req, res) => {
+    // إذا وصل الطلب إلى هنا، فالـ middleware قد تحقق من التوكن بنجاح
+    // ومعلومات المستخدم موجودة في req.user
+    res.json({ loggedIn: true, user: req.user });
 });
 
-app.get('/api/user', (req, res) => {
-    if (req.session && req.session.user) {
-        res.json({ loggedIn: true, user: req.session.user });
-    } else {
-        res.json({ loggedIn: false });
-    }
-});
-
-app.post('/api/chat', async (req, res) => {
+app.post('/api/chat', verifyToken, async (req, res) => {
     await handleChatRequest(req, res);
 });
 
+// =================================================================
+// ✨ نقاط نهاية جديدة للبيانات (تضاف في القسم 5)
+// =================================================================
+
+// جلب جميع بيانات المستخدم (المحادثات والإعدادات) - نسخة مضادة للرصاص
+app.get('/api/data', verifyToken, async (req, res) => {
+    try {
+        // 1. تحقق من وجود المستخدم والـ ID في التوكن
+        if (!req.user || !req.user.id) {
+            console.error('Validation Error: User or User ID not found in token payload.');
+            return res.status(401).json({ message: 'Invalid token: User ID missing.' });
+        }
+        const userIdString = req.user.id;
+        console.log(`Attempting to fetch data for user ID: ${userIdString}`);
+
+        // 2. ✨✨ الخطوة الجديدة والمهمة: تحقق من أن الـ ID صالح قبل محاولة التحويل ✨✨
+        if (!mongoose.Types.ObjectId.isValid(userIdString)) {
+            console.error(`Validation Error: Provided User ID "${userIdString}" is not a valid MongoDB ObjectId.`);
+            return res.status(400).json({ message: 'Invalid User ID format.' });
+        }
+        
+        // 3. قم بالتحويل فقط بعد التأكد من صلاحيته
+        const userIdObject = new mongoose.Types.ObjectId(userIdString);
+
+        // 4. ابحث عن البيانات باستخدام الـ ID الصالح
+        const chats = await Chat.find({ user: userIdObject }).sort({ order: -1 });
+        let settings = await Settings.findOne({ user: userIdObject });
+
+        // 5. إذا لم توجد إعدادات، أنشئها
+        if (!settings) {
+            console.log(`No settings found for user ${userIdObject}, creating new ones.`);
+            settings = new Settings({ user: userIdObject });
+            await settings.save();
+        }
+
+        console.log(`Successfully fetched data for user ${userIdObject}`);
+        res.json({ chats, settings });
+
+    } catch (error) {
+        // 6. في حالة حدوث أي خطأ آخر، قم بتسجيله وإرساله
+        console.error('FATAL: An unexpected error occurred while fetching user data:', error);
+        res.status(500).json({ message: 'An internal server error occurred.', error: error.message });
+    }
+});
+
+// حفظ أو تحديث محادثة
+app.post('/api/chats', verifyToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const chatData = req.body;
+
+        // إذا كان للمحادثة ID، قم بتحديثها. وإلا، أنشئ واحدة جديدة.
+        if (chatData._id) {
+            const updatedChat = await Chat.findByIdAndUpdate(
+                chatData._id,
+                { ...chatData, user: userId }, // تأكد من أن المستخدم هو المالك
+                { new: true, runValidators: true }
+            );
+            res.json(updatedChat);
+        } else {
+            const newChat = new Chat({ ...chatData, user: userId });
+            await newChat.save();
+            res.status(201).json(newChat);
+        }
+    } catch (error) {
+        console.error('Error saving chat:', error);
+        res.status(500).json({ message: 'Failed to save chat' });
+    }
+});
+
+// تحديث الإعدادات
+app.put('/api/settings', verifyToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const settingsData = req.body;
+
+        const updatedSettings = await Settings.findOneAndUpdate(
+            { user: userId },
+            settingsData,
+            { new: true, upsert: true } // upsert: إذا لم تكن موجودة، أنشئها
+        );
+        res.json(updatedSettings);
+    } catch (error) {
+        console.error('Error updating settings:', error);
+        res.status(500).json({ message: 'Failed to update settings' });
+    }
+});
+
+// حذف محادثة
+app.delete('/api/chats/:chatId', verifyToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { chatId } = req.params;
+
+        const result = await Chat.findOneAndDelete({ _id: chatId, user: userId });
+
+        if (!result) {
+            return res.status(404).json({ message: 'Chat not found or user not authorized' });
+        }
+
+        res.status(200).json({ message: 'Chat deleted successfully' });
+    } catch (error) {
+        console.error('Error deleting chat:', error);
+        res.status(500).json({ message: 'Failed to delete chat' });
+    }
+});
 
 // =================================================================
 // 5. عرض الملفات الثابتة
@@ -155,11 +308,19 @@ const keyManager = {
 async function handleChatRequest(req, res) {
     try {
         const payload = req.body;
+        // ✨ التحقق من وجود الإعدادات والمزود قبل أي شيء آخر ✨
+        if (!payload.settings || !payload.settings.provider) {
+            // إذا لم يكن هناك مزود، أرسل خطأ واضحًا بدلاً من الانهيار
+            throw new Error('Provider information is missing in the request settings.');
+        }
         const { provider } = payload.settings;
+
+        // الآن يمكننا استخدام 'provider' بأمان
         if (provider === 'gemini') await handleGeminiRequest(payload, res);
         else if (provider === 'openrouter') await handleOpenRouterRequest(payload, res);
         else if (provider.startsWith('custom_')) await handleCustomProviderRequest(payload, res);
-        else throw new Error('مزود غير معروف.');
+        else throw new Error(`مزود غير معروف: ${provider}`);
+        
     } catch (error) {
         console.error('Error processing chat request:', error.message);
         res.status(500).json({ error: error.message });
@@ -255,6 +416,15 @@ function streamOpenAICompatibleAPI(options, body, res) {
     });
 }
 
+// =================================================================
+// ✨ الاتصال بقاعدة البيانات
+// =================================================================
+mongoose.connect(process.env.MONGODB_URI)
+    .then(() => console.log('✅ Successfully connected to MongoDB Atlas.'))
+    .catch(err => {
+        console.error('❌ Could not connect to MongoDB Atlas.', err);
+        process.exit(1); // إيقاف الخادم إذا فشل الاتصال
+    });
 
 // =================================================================
 // 7. تشغيل الخادم
