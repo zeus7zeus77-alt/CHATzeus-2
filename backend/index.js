@@ -40,10 +40,15 @@ const Settings = require('./models/settings.model.js');
 const app = express();
 const server = http.createServer(app);
 
-app.use(cors({
+// ✨ تحصين CORS للسماح بالتوكن والطلبات المعقدة ✨
+const corsOptions = {
   origin: 'https://chatzeus.vercel.app',
-  credentials: true
-}));
+  credentials: true,
+  allowedHeaders: ['Content-Type', 'Authorization'] // السماح بهيدر التوكن
+};
+
+app.use(cors(corsOptions ));
+app.options('*', cors(corsOptions)); // الرد على طلبات pre-flight
 
 const oauth2Client = new OAuth2Client(
     process.env.GOOGLE_CLIENT_ID,
