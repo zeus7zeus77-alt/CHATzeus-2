@@ -5,23 +5,17 @@ const fs = require('fs');
 const path = require('path');
 
 try {
-    const envPath = path.join(__dirname, '.env');
-    if (fs.existsSync(envPath)) { // ✨ التحقق من وجود الملف أولاً
-        const envConfig = fs.readFileSync(envPath, 'utf8');
-        envConfig.split('\n').forEach(line => {
-            const [key, value] = line.split('=');
-            if (key && value) {
-                process.env[key.trim()] = value.trim().replace(/^"|"$/g, '');
-            }
-        });
-        console.log('✅ .env file loaded successfully.');
-    } else {
-        // إذا لم يكن الملف موجودًا، فهذا طبيعي في بيئة الإنتاج
-        console.log('ℹ️ No .env file found, relying on production environment variables.');
-    }
-} catch (e) {
-    // تجاهل أي أخطاء في قراءة الملف واستمر
-    console.warn('Could not read .env file, continuing with environment variables.');
+    const envConfig = fs.readFileSync(path.join(__dirname, '.env'), 'utf8');
+    envConfig.split('\n').forEach(line => {
+        const [key, value] = line.split('=');
+        if (key && value) {
+            process.env[key.trim()] = value.trim();
+        }
+    });
+    console.log('✅ Environment variables loaded manually.');
+} catch (error) {
+    console.error('Could not load .env file. Please ensure it exists in the backend folder.', error);
+    process.exit(1); // إيقاف التشغيل إذا لم يتم العثور على الملف
 }
 
 
@@ -69,12 +63,6 @@ const oauth2Client = new OAuth2Client(
 app.use(express.json({ limit: '50mb' }));
 
 
-
-if (!process.env.JWT_SECRET) {
-  console.warn('⚠️ JWT_SECRET is missing. Token verification may fail.');
-}
-
-
 // =================================================================
 // 4. Middleware للتحقق من التوكن
 // =================================================================
@@ -88,7 +76,7 @@ function verifyToken(req, res, next) {
 
     jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
         if (err) {
-            return res.status(401).json({ loggedIn: false, message: 'Token is not valid or expired.' });
+            return res.status(403).json({ loggedIn: false, message: 'Token is not valid.' });
         }
         req.user = user;
         next();
@@ -137,15 +125,15 @@ app.get('/auth/google/callback', async (req, res) => {
         }
 
         // إنشاء حمولة التوكن مع معرّف قاعدة البيانات
-        // داخل مسار /auth/google/callback بعد إنشاء (أو إيجاد) المستخدم
-const payload = {
-  id: String(user._id), // ✅ اجعله نصًا صريحًا
-  name: user.name,
-  email: user.email,
-  picture: user.picture,
-};
+        const payload = {
+            id: user._id, // ✨ الأهم: استخدام معرّف قاعدة البيانات
+            name: user.name,
+            email: user.email,
+            picture: user.picture,
+        };
 
-const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
+        // توقيع التوكن
+        const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
 
         // إعادة التوجيه إلى الواجهة الأمامية مع التوكن
         res.redirect(`https://chatzeus.vercel.app/?token=${token}` );
