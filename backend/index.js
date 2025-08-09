@@ -202,18 +202,30 @@ app.get('/api/data', verifyToken, async (req, res) => {
 // حفظ أو تحديث محادثة
 app.post('/api/chats', verifyToken, async (req, res) => {
     try {
-        const userId = req.user.id;
+        const userIdString = req.user.id;
+        // ✨ 1. التحقق من صلاحية معرّف المستخدم ✨
+        if (!mongoose.Types.ObjectId.isValid(userIdString)) {
+            return res.status(400).json({ message: 'Invalid User ID format.' });
+        }
+        const userId = new mongoose.Types.ObjectId(userIdString);
         const chatData = req.body;
 
-        // إذا كان للمحادثة ID، قم بتحديثها. وإلا، أنشئ واحدة جديدة.
-        if (chatData._id) {
-            const updatedChat = await Chat.findByIdAndUpdate(
-                chatData._id,
-                { ...chatData, user: userId }, // تأكد من أن المستخدم هو المالك
+        // إذا كانت المحادثة موجودة (لديها ID صالح)
+        if (chatData._id && mongoose.Types.ObjectId.isValid(chatData._id)) {
+            const updatedChat = await Chat.findOneAndUpdate(
+                // ✨ 2. استخدام المعرّفات المحوّلة والصحيحة في الاستعلام ✨
+                { _id: new mongoose.Types.ObjectId(chatData._id), user: userId },
+                { ...chatData, user: userId },
                 { new: true, runValidators: true }
             );
+            // إذا لم يتم العثور على المحادثة (لأنها لا تخص المستخدم)، أرجع خطأ
+            if (!updatedChat) {
+                return res.status(404).json({ message: "Chat not found or user not authorized" });
+            }
             res.json(updatedChat);
         } else {
+            // إذا كانت محادثة جديدة، احذف أي ID قديم أو غير صالح
+            delete chatData._id; 
             const newChat = new Chat({ ...chatData, user: userId });
             await newChat.save();
             res.status(201).json(newChat);
@@ -227,13 +239,20 @@ app.post('/api/chats', verifyToken, async (req, res) => {
 // تحديث الإعدادات
 app.put('/api/settings', verifyToken, async (req, res) => {
     try {
-        const userId = req.user.id;
+        const userIdString = req.user.id;
+        // ✨ الخطوة 1: التحقق من أن الـ ID صالح قبل استخدامه ✨
+        if (!mongoose.Types.ObjectId.isValid(userIdString)) {
+            return res.status(400).json({ message: 'Invalid User ID format.' });
+        }
+        // ✨ الخطوة 2: تحويل الـ ID إلى النوع الصحيح ✨
+        const userId = new mongoose.Types.ObjectId(userIdString);
         const settingsData = req.body;
 
         const updatedSettings = await Settings.findOneAndUpdate(
-            { user: userId },
+            { user: userId }, // استخدام الـ ID المحوّل والصحيح
             settingsData,
-            { new: true, upsert: true } // upsert: إذا لم تكن موجودة، أنشئها
+            // ✨ إضافة runValidators لضمان صحة البيانات المدخلة ✨
+            { new: true, upsert: true, runValidators: true } 
         );
         res.json(updatedSettings);
     } catch (error) {
@@ -245,12 +264,22 @@ app.put('/api/settings', verifyToken, async (req, res) => {
 // حذف محادثة
 app.delete('/api/chats/:chatId', verifyToken, async (req, res) => {
     try {
-        const userId = req.user.id;
+        const userIdString = req.user.id;
         const { chatId } = req.params;
 
-        const result = await Chat.findOneAndDelete({ _id: chatId, user: userId });
+        // ✨ 1. التحقق من صلاحية كلا المعرّفين قبل أي شيء ✨
+        if (!mongoose.Types.ObjectId.isValid(userIdString) || !mongoose.Types.ObjectId.isValid(chatId)) {
+            return res.status(400).json({ message: 'Invalid ID format.' });
+        }
+
+        // ✨ 2. استخدام المعرّفات المحوّلة والصحيحة في الاستعلام ✨
+        const result = await Chat.findOneAndDelete({ 
+            _id: new mongoose.Types.ObjectId(chatId), 
+            user: new mongoose.Types.ObjectId(userIdString) 
+        });
 
         if (!result) {
+            // هذا يعني أن المحادثة غير موجودة أو لا تخص هذا المستخدم
             return res.status(404).json({ message: 'Chat not found or user not authorized' });
         }
 
