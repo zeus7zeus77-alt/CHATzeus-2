@@ -30,9 +30,9 @@ const { OAuth2Client } = require('google-auth-library');
 const cors = require('cors'); // Import cors
 const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
-const User = require('./models/user.model.js');
-const Chat = require('./models/chat.model.js');
-const Settings = require('./models/settings.model.js');
+const User = require('../models/user.model.js');
+const Chat = require('../models/chat.model.js');
+const Settings = require('../models/settings.model.js');
 
 // =================================================================
 // 3. إعداد تطبيق Express والخادم
