@@ -338,19 +338,48 @@ const keyManager = {
         gemini: (process.env.GEMINI_API_KEYS || '').split(',').filter(k => k),
         openrouter: (process.env.OPENROUTER_API_KEYS || '').split(',').filter(k => k)
     },
-    indices: { gemini: 0, openrouter: 0 },
+    // هذا المتغير سيتتبع المفتاح التالي الذي يجب استخدامه لكل مزود
+    indices: {
+        gemini: 0,
+        openrouter: 0
+    },
     tryKeys: async function(provider, strategy, customKeys, action) {
-        const keyPool = customKeys.length > 0 ? customKeys : this.keys[provider] || [];
-        if (keyPool.length === 0) throw new Error(`لا توجد مفاتيح API للمزود ${provider}`);
-        for (let i = 0; i < keyPool.length; i++) {
-            const key = keyPool[i];
-            try { return await action(key); } catch (error) {
-                console.error(`[Key Manager] فشل المفتاح ${i + 1} للمزود ${provider}:`, error.message);
-                if (i === keyPool.length - 1) throw new Error(`فشلت جميع مفاتيح API للمزود ${provider}.`);
-            }
+        // تحديد مجموعة المفاتيح الصحيحة (إما مفاتيح المستخدم أو المفاتيح العامة)
+        const keyPool = (customKeys && customKeys.length > 0) ? customKeys : this.keys[provider] || [];
+        if (keyPool.length === 0) {
+            throw new Error(`No API keys available for provider: ${provider}`);
+        }
+
+        // ✨✨✨ منطق توزيع الحمل الجديد يبدأ هنا ✨✨✨
+
+        // 1. احصل على المؤشر الحالي للمفتاح الذي سنستخدمه هذه المرة
+        // هذا المؤشر خاص بالمفاتيح العامة فقط (لا معنى لتوزيع الحمل على مفتاح مستخدم واحد)
+        const keyIndex = (this.indices[provider] || 0);
+        
+        // 2. اختر المفتاح بناءً على المؤشر
+        const keyToTry = keyPool[keyIndex];
+        console.log(`[Key Manager] Load Balancing: Selected key index ${keyIndex} for provider ${provider}.`);
+
+        try {
+            // 3. حاول تنفيذ الطلب باستخدام المفتاح المختار
+            const result = await action(keyToTry);
+            
+            // 4. ✨ في حالة النجاح، قم بتحديث المؤشر للمرة القادمة ✨
+            // هذا هو سر توزيع الحمل: ننتقل إلى المفتاح التالي للطلب القادم
+            this.indices[provider] = (keyIndex + 1) % keyPool.length;
+            
+            return result; // أرجع النتيجة الناجحة
+
+        } catch (error) {
+            console.error(`[Key Manager] Key index ${keyIndex} for ${provider} failed. Error: ${error.message}`);
+            // في حالة الفشل، لا نزال نحدث المؤشر لتجنب استخدام نفس المفتاح الفاشل مرة أخرى
+            this.indices[provider] = (keyIndex + 1) % keyPool.length;
+            // ثم نرمي الخطأ ليعرف المستخدم أن الطلب فشل
+            throw error;
         }
     }
 };
+
 async function handleChatRequest(req, res) {
     try {
         const payload = req.body;
