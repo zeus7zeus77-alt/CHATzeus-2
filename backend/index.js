@@ -30,9 +30,9 @@ const { OAuth2Client } = require('google-auth-library');
 const cors = require('cors'); // Import cors
 const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
-const User = require('./models/user.model.js');
-const Chat = require('./models/chat.model.js');
-const Settings = require('./models/settings.model.js');
+const User = require('../models/user.model.js');
+const Chat = require('../models/chat.model.js');
+const Settings = require('../models/settings.model.js');
 
 // =================================================================
 // 3. إعداد تطبيق Express والخادم
@@ -374,7 +374,10 @@ async function handleChatRequest(req, res) {
 }
 async function handleGeminiRequest(payload, res) {
     const { chatHistory, attachments, settings } = payload;
-    await keyManager.tryKeys('gemini', settings.apiKeyRetryStrategy, [], async (apiKey) => {
+    // ✨✨✨ الإصلاح هنا: استخراج مفاتيح المستخدم من الإعدادات ✨✨✨
+    const userApiKeys = (settings.geminiApiKeys || []).map(k => k.key).filter(Boolean);
+    
+    await keyManager.tryKeys('gemini', settings.apiKeyRetryStrategy, userApiKeys, async (apiKey) => {
         const genAI = new GoogleGenerativeAI(apiKey);
         const model = genAI.getGenerativeModel({ model: settings.model });
         const history = chatHistory.slice(0, -1).map(msg => ({ role: msg.role === 'user' ? 'user' : 'model', parts: [{ text: msg.content || '' }] }));
@@ -387,9 +390,13 @@ async function handleGeminiRequest(payload, res) {
         res.end();
     });
 }
+
 async function handleOpenRouterRequest(payload, res) {
     const { chatHistory, settings } = payload;
-    await keyManager.tryKeys('openrouter', settings.apiKeyRetryStrategy, [], async (apiKey) => {
+    // ✨✨✨ الإصلاح هنا: استخراج مفاتيح المستخدم من الإعدادات ✨✨✨
+    const userApiKeys = (settings.openrouterApiKeys || []).map(k => k.key).filter(Boolean);
+
+    await keyManager.tryKeys('openrouter', settings.apiKeyRetryStrategy, userApiKeys, async (apiKey) => {
         const formattedMessages = formatMessagesForOpenAI(chatHistory);
         const requestBody = JSON.stringify({ model: settings.model, messages: formattedMessages, temperature: settings.temperature, stream: true });
         const options = { hostname: 'openrouter.ai', path: '/api/v1/chat/completions', method: 'POST', headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' } };
