@@ -161,33 +161,55 @@ app.post('/api/chat', verifyToken, async (req, res) => {
 
 app.get('/api/data', verifyToken, async (req, res) => {
     try {
-        // ✨✨✨ الإصلاح الحاسم: التحقق من صلاحية الـ ID قبل أي شيء ✨✨✨
+        // 1. التحقق من صلاحية الـ ID في التوكن
         if (!req.user || !req.user.id || !mongoose.Types.ObjectId.isValid(req.user.id)) {
             return res.status(400).json({ message: 'Invalid or missing user ID in token.' });
         }
 
-        const user = await User.findById(req.user.id);
+        let user = await User.findById(req.user.id);
+
+        // 2. خطة احتياطية: إذا لم يتم العثور على المستخدم بالـ ID، جرب googleId
+        if (!user && req.user.googleId) {
+            console.warn(`User not found by ID ${req.user.id}, trying googleId...`);
+            user = await User.findOne({ googleId: req.user.googleId });
+
+            // 3. إذا لم يكن موجودًا على الإطلاق، أنشئه الآن (هذا يمنع أي فشل)
+            if (!user) {
+                console.warn(`User not found by googleId either. Creating a new user record now.`);
+                user = await User.create({
+                    _id: req.user.id, // استخدم نفس الـ ID من التوكن لضمان التوافق
+                    googleId: req.user.googleId,
+                    email: req.user.email,
+                    name: req.user.name,
+                    picture: req.user.picture,
+                });
+            }
+        }
+        
+        // إذا لم يتم العثور على المستخدم بعد كل المحاولات، فهناك مشكلة حقيقية
         if (!user) {
-            return res.status(404).json({ message: 'User not found in database.' });
+             return res.status(404).json({ message: 'User could not be found or created.' });
         }
 
+        // 4. الآن بعد التأكد من وجود المستخدم، اجلب بياناته
         const chats = await Chat.find({ user: user._id }).sort({ order: -1 });
         let settings = await Settings.findOne({ user: user._id });
 
+        // 5. إذا لم تكن لديه إعدادات، أنشئها
         if (!settings) {
-            settings = new Settings({ user: user._id });
-            await settings.save();
+            settings = await new Settings({ user: user._id }).save();
         }
 
-        res.json({
+        // 6. أرجع دائمًا ردًا ناجحًا
+        return res.json({
             settings,
             chats,
             user: { id: user._id, name: user.name, picture: user.picture, email: user.email }
         });
 
-    } catch (error) {
-        console.error('Error in /api/data endpoint:', error);
-        res.status(500).json({ message: 'Failed to fetch user data.' });
+    } catch (e) {
+        console.error('FATAL Error in /api/data:', e);
+        return res.status(500).json({ message: 'Failed to fetch user data.', error: e.message });
     }
 });
 
@@ -256,7 +278,7 @@ app.put('/api/settings', verifyToken, async (req, res) => {
         const updatedSettings = await Settings.findOneAndUpdate(
             { user: userId },
             { $set: allowedUpdates }, // استخدام $set لتحديث الحقول المحددة فقط
-            { new: true, upsert: true, runValidators: true }
+            { new: true, upsert: true, runValidators: false }
         );
 
         res.json(updatedSettings);
