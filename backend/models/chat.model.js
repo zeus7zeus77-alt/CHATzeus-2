@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const messageSchema = new mongoose.Schema({
     role: { type: String, required: true, enum: ['user', 'assistant'] },
     // ✨✨✨ الإصلاح هنا: زيادة الحد الأقصى لطول المحتوى ✨✨✨
-    content: { type: String, maxLength: 400000 }, // زيادة الحد إلى 200 ألف حرف
+    content: { type: String, maxLength: 1500000 }, // زيادة الحد إلى 200 ألف حرف
     attachments: [{
         name: String,
         size: Number,
