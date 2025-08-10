@@ -95,26 +95,6 @@ app.get('/auth/google', (req, res) => {
     res.redirect(authorizeUrl);
 });
 
-app.get('/auth/google/callback', async (req, res) => {
-    try {
-        const { code } = req.query;
-        const { tokens } = await oauth2Client.getToken(code);
-        oauth2Client.setCredentials(tokens);
-        const userInfoResponse = await oauth2Client.request({ url: 'https://www.googleapis.com/oauth2/v3/userinfo' } );
-        const userInfo = userInfoResponse.data;
-
-        // ابحث عن المستخدم في قاعدة البيانات أو أنشئ مستخدمًا جديدًا
-        let user = await User.findOne({ googleId: userInfo.sub });
-
-        if (!user) {
-            // مستخدم جديد
-            user = new User({
-                googleId: userInfo.sub, // .sub هو المعرف الفريد من جوجل
-                email: userInfo.email,
-                name: userInfo.name,
-                picture: userInfo.picture,
-            });
-            await user.save();
 
             // إنشاء إعدادات افتراضية للمستخدم الجديد
             const newSettings = new Settings({ user: user._id });
@@ -387,29 +367,7 @@ async function handleGeminiRequest(payload, res) {
         res.end();
     });
 }
-async function handleOpenRouterRequest(payload, res) {
-    const { chatHistory, settings } = payload;
-    await keyManager.tryKeys('openrouter', settings.apiKeyRetryStrategy, [], async (apiKey) => {
-        const formattedMessages = formatMessagesForOpenAI(chatHistory);
-        const requestBody = JSON.stringify({ model: settings.model, messages: formattedMessages, temperature: settings.temperature, stream: true });
-        const options = { hostname: 'openrouter.ai', path: '/api/v1/chat/completions', method: 'POST', headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' } };
-        await streamOpenAICompatibleAPI(options, requestBody, res);
-    });
-}
-async function handleCustomProviderRequest(payload, res) {
-    const { chatHistory, settings, customProviders } = payload;
-    const providerId = settings.provider;
-    const providerConfig = customProviders.find(p => p.id === providerId);
-    if (!providerConfig) throw new Error(`لم يتم العثور على إعدادات المزود المخصص: ${providerId}`);
-    const customKeys = (providerConfig.apiKeys || []).map(k => k.key).filter(Boolean);
-    await keyManager.tryKeys(providerId, settings.apiKeyRetryStrategy, customKeys, async (apiKey) => {
-        const formattedMessages = formatMessagesForOpenAI(chatHistory);
-        const requestBody = JSON.stringify({ model: settings.model, messages: formattedMessages, temperature: settings.temperature, stream: true });
-        const url = new URL(providerConfig.baseUrl);
-        const options = { hostname: url.hostname, path: url.pathname, method: 'POST', headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' } };
-        await streamOpenAICompatibleAPI(options, requestBody, res);
-    });
-}
+
 function buildUserParts(lastMessage, attachments) {
     const userParts = [];
     if (lastMessage.content) userParts.push({ text: lastMessage.content });
