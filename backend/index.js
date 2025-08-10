@@ -498,6 +498,16 @@ function streamOpenAICompatibleAPI(options, body, res) {
     });
 }
 
+// ✨✨✨ معالج الأخطاء العام (Global Error Handler) ✨✨✨
+app.use((err, req, res, next) => {
+    console.error('[GLOBAL ERROR HANDLER]:', err.stack);
+    res.status(500).json({
+        message: 'حدث خطأ غير متوقع في الخادم.',
+        error: err.message 
+    });
+});
+
+
 // =================================================================
 // ✨ الاتصال بقاعدة البيانات
 // =================================================================
