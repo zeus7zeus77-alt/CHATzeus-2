@@ -14,8 +14,8 @@ try {
     });
     console.log('✅ Environment variables loaded manually.');
 } catch (error) {
-    console.error('Could not load .env file. Please ensure it exists in the backend folder.', error);
-    process.exit(1); // إيقاف التشغيل إذا لم يتم العثور على الملف
+    // ✨ لا توقف الخادم، فقط اعرض تحذيرًا بأنه سيستخدم متغيرات البيئة من المنصة ✨
+    console.warn('⚠️  Could not find .env file. Using platform environment variables instead.');
 }
 
 
@@ -126,7 +126,8 @@ app.get('/auth/google/callback', async (req, res) => {
 
         // إنشاء حمولة التوكن مع معرّف قاعدة البيانات
         const payload = {
-            id: user._id, // ✨ الأهم: استخدام معرّف قاعدة البيانات
+            id: user._id,
+            googleId: user.googleId,
             name: user.name,
             email: user.email,
             picture: user.picture,
@@ -160,53 +161,39 @@ app.post('/api/chat', verifyToken, async (req, res) => {
 
 app.get('/api/data', verifyToken, async (req, res) => {
     try {
-        // ✨ الخطوة 1: ابحث عن المستخدم أولاً باستخدام googleId من التوكن
-        let user = await User.findOne({ googleId: req.user.googleId });
-
-        // ✨ الخطوة 2: إذا لم يتم العثور عليه، فهذا يعني أنه مستخدم جديد
+        // ✨ 1. ابحث عن المستخدم باستخدام ID قاعدة البيانات من التوكن (الطريقة الموحدة)
+        const user = await User.findById(req.user.id);
         if (!user) {
-            console.log('User not found via googleId, creating new user:', req.user.email);
-            // قم بإنشاء مستخدم جديد في قاعدة البيانات
-            user = new User({
-                googleId: req.user.googleId,
-                name: req.user.name,
-                email: req.user.email,
-                picture: req.user.picture,
-            });
-            await user.save(); // احفظ المستخدم الجديد
-
-            // أنشئ له إعدادات افتراضية أيضًا
-            const newSettings = new Settings({ user: user._id });
-            await newSettings.save();
-            console.log('New user and default settings created successfully.');
+            // هذا الخطأ لا يجب أن يحدث إذا كان التوكن صالحًا، ولكنه إجراء وقائي جيد
+            return res.status(404).json({ message: 'User not found in database.' });
         }
 
-        // ✨ الخطوة 3: الآن، بعد التأكد من وجود المستخدم، اجلب بياناته الكاملة
-        const userData = await User.findById(user._id)
-            .populate('chats') // جلب المحادثات المرتبطة
-            .populate('settings'); // جلب الإعدادات المرتبطة
+        // ✨ 2. ابحث عن المحادثات والإعدادات بشكل منفصل (الطريقة الأسلم)
+        const chats = await Chat.find({ user: user._id }).sort({ order: -1 });
+        let settings = await Settings.findOne({ user: user._id });
 
-        // إذا لم يكن لديه إعدادات لسبب ما (كإجراء وقائي)
-        if (!userData.settings) {
-            const newSettings = new Settings({ user: user._id });
-            await newSettings.save();
-            userData.settings = newSettings;
+        // إذا لم توجد إعدادات، أنشئها
+        if (!settings) {
+            console.log(`No settings found for user ${user._id}, creating new ones.`);
+            settings = new Settings({ user: user._id });
+            await settings.save();
         }
 
+        // ✨ 3. أرجع البيانات المجمعة
         res.json({
-            settings: userData.settings,
-            chats: userData.chats,
-            user: { // إرسال بيانات المستخدم للواجهة
-                id: userData._id,
-                name: userData.name,
-                picture: userData.picture,
-                email: userData.email
+            settings,
+            chats,
+            user: { 
+                id: user._id, 
+                name: user.name, 
+                picture: user.picture, 
+                email: user.email 
             }
         });
 
     } catch (error) {
         console.error('Error in /api/data endpoint:', error);
-        res.status(500).json({ message: 'فشل في جلب أو إنشاء بيانات المستخدم' });
+        res.status(500).json({ message: 'Failed to fetch user data.' });
     }
 });
 
