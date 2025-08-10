@@ -161,34 +161,28 @@ app.post('/api/chat', verifyToken, async (req, res) => {
 
 app.get('/api/data', verifyToken, async (req, res) => {
     try {
-        // ✨ 1. ابحث عن المستخدم باستخدام ID قاعدة البيانات من التوكن (الطريقة الموحدة)
+        // ✨✨✨ الإصلاح الحاسم: التحقق من صلاحية الـ ID قبل أي شيء ✨✨✨
+        if (!req.user || !req.user.id || !mongoose.Types.ObjectId.isValid(req.user.id)) {
+            return res.status(400).json({ message: 'Invalid or missing user ID in token.' });
+        }
+
         const user = await User.findById(req.user.id);
         if (!user) {
-            // هذا الخطأ لا يجب أن يحدث إذا كان التوكن صالحًا، ولكنه إجراء وقائي جيد
             return res.status(404).json({ message: 'User not found in database.' });
         }
 
-        // ✨ 2. ابحث عن المحادثات والإعدادات بشكل منفصل (الطريقة الأسلم)
         const chats = await Chat.find({ user: user._id }).sort({ order: -1 });
         let settings = await Settings.findOne({ user: user._id });
 
-        // إذا لم توجد إعدادات، أنشئها
         if (!settings) {
-            console.log(`No settings found for user ${user._id}, creating new ones.`);
             settings = new Settings({ user: user._id });
             await settings.save();
         }
 
-        // ✨ 3. أرجع البيانات المجمعة
         res.json({
             settings,
             chats,
-            user: { 
-                id: user._id, 
-                name: user.name, 
-                picture: user.picture, 
-                email: user.email 
-            }
+            user: { id: user._id, name: user.name, picture: user.picture, email: user.email }
         });
 
     } catch (error) {
@@ -234,28 +228,43 @@ app.post('/api/chats', verifyToken, async (req, res) => {
     }
 });
 
-// تحديث الإعدادات
 app.put('/api/settings', verifyToken, async (req, res) => {
     try {
-        const userIdString = req.user.id;
-        // ✨ الخطوة 1: التحقق من أن الـ ID صالح قبل استخدامه ✨
-        if (!mongoose.Types.ObjectId.isValid(userIdString)) {
-            return res.status(400).json({ message: 'Invalid User ID format.' });
+        if (!req.user || !req.user.id || !mongoose.Types.ObjectId.isValid(req.user.id)) {
+            return res.status(400).json({ message: 'Invalid or missing user ID in token.' });
         }
-        // ✨ الخطوة 2: تحويل الـ ID إلى النوع الصحيح ✨
-        const userId = new mongoose.Types.ObjectId(userIdString);
-        const settingsData = req.body;
+        const userId = new mongoose.Types.ObjectId(req.user.id);
+        const receivedSettings = req.body;
+
+        // ✨✨✨ الإصلاح الحاسم: انتقاء الحقول المعروفة فقط ✨✨✨
+        const allowedUpdates = {
+            provider: receivedSettings.provider,
+            model: receivedSettings.model,
+            temperature: receivedSettings.temperature,
+            customPrompt: receivedSettings.customPrompt,
+            apiKeyRetryStrategy: receivedSettings.apiKeyRetryStrategy,
+            fontSize: receivedSettings.fontSize,
+            geminiApiKeys: receivedSettings.geminiApiKeys,
+            openrouterApiKeys: receivedSettings.openrouterApiKeys,
+            customProviders: receivedSettings.customProviders,
+            customModels: receivedSettings.customModels
+        };
+
+        // إزالة أي حقول غير معرفة (undefined) لتجنب المشاكل
+        Object.keys(allowedUpdates).forEach(key => allowedUpdates[key] === undefined && delete allowedUpdates[key]);
 
         const updatedSettings = await Settings.findOneAndUpdate(
-            { user: userId }, // استخدام الـ ID المحوّل والصحيح
-            settingsData,
-            // ✨ إضافة runValidators لضمان صحة البيانات المدخلة ✨
-            { new: true, upsert: true, runValidators: true } 
+            { user: userId },
+            { $set: allowedUpdates }, // استخدام $set لتحديث الحقول المحددة فقط
+            { new: true, upsert: true, runValidators: true }
         );
+
         res.json(updatedSettings);
+
     } catch (error) {
         console.error('Error updating settings:', error);
-        res.status(500).json({ message: 'Failed to update settings' });
+        // إرسال رسالة خطأ أكثر تفصيلاً للمساعدة في التشخيص
+        res.status(500).json({ message: 'Failed to update settings.', error: error.message });
     }
 });
 
