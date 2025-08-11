@@ -33,8 +33,6 @@ const mongoose = require('mongoose');
 const User = require('./models/user.model.js');
 const Chat = require('./models/chat.model.js');
 const Settings = require('./models/settings.model.js');
-const path = require('path');
-const fs   = require('fs');
 const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
 
