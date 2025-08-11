@@ -33,6 +33,10 @@ const mongoose = require('mongoose');
 const User = require('./models/user.model.js');
 const Chat = require('./models/chat.model.js');
 const Settings = require('./models/settings.model.js');
+const path = require('path');
+const fs   = require('fs');
+const multer = require('multer');
+const { v4: uuidv4 } = require('uuid');
 
 // =================================================================
 // 3. إعداد تطبيق Express والخادم
@@ -83,10 +87,74 @@ function verifyToken(req, res, next) {
     });
 }
 
+// =================================================================
+// 3.5 تهيئة مجلد الرفع + إعداد Multer
+// =================================================================
+const uploadsDir = path.join(__dirname, 'uploads');
+
+// تأكد من وجود مجلد الرفع
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+  console.log('✅ Created uploads directory at:', uploadsDir);
+}
+
+// إعداد التخزين لـ Multer
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, uploadsDir);
+  },
+  filename: function (req, file, cb) {
+    const ext = path.extname(file.originalname || '');
+    cb(null, `${uuidv4()}${ext}`);
+  }
+});
+
+// فلترة بسيطة للأنواع المسموحة (اختياري — عدّل حسب حاجتك)
+const allowedMime = new Set([
+  'text/plain','text/markdown','text/csv','application/json','application/xml',
+  'text/html','text/css','application/javascript',
+  'image/jpeg','image/png','image/gif','image/webp','image/bmp'
+]);
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+  fileFilter: (req, file, cb) => {
+    // اسمح بكل شيء أو قيّد بأنواع محددة
+    if (!allowedMime.size || allowedMime.has(file.mimetype)) return cb(null, true);
+    cb(new Error('نوع الملف غير مسموح'));
+  }
+});
+
+// خدمة الملفات المرفوعة بشكل ثابت
+app.use('/uploads', express.static(uploadsDir));
 
 // =================================================================
 // 5. نقاط النهاية (Routes)
 // =================================================================
+// =================================================================
+// مسار رفع الملفات (يرجع معلومات يمكن حفظها داخل الرسالة فقط)
+// =================================================================
+app.post('/api/uploads', verifyToken, upload.array('files', 10), async (req, res) => {
+  try {
+    const files = (req.files || []).map(f => ({
+      originalName: f.originalname,
+      filename: f.filename,
+      size: f.size,
+      mimeType: f.mimetype,
+      // رابط HTTP يصلح للواجهة الأمامية لعرض/تحميل الملف لاحقًا
+      url: `/uploads/${f.filename}`,
+      // مسار فعلي على السيرفر (لا ترسله للواجهة لو لا تحتاجه)
+      path: f.path
+    }));
+
+    return res.status(201).json({ files });
+  } catch (e) {
+    console.error('Upload error:', e);
+    return res.status(500).json({ message: 'فشل رفع الملفات', error: e.message });
+  }
+});
+
 app.get('/auth/google', (req, res) => {
     const authorizeUrl = oauth2Client.generateAuthUrl({
         access_type: 'offline',
