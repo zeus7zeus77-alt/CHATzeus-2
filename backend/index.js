@@ -473,10 +473,8 @@ async function handleGeminiRequest(payload, res) {
 const { chatHistory, attachments, settings, meta } = payload;
 const userApiKeys = (settings.geminiApiKeys || []).map(k => k.key).filter(Boolean);
 
-await keyManager.tryKeys(‘gemini’, settings.apiKeyRetryStrategy, userApiKeys, async (apiKey) => {
-const genAI = new GoogleGenerativeAI(apiKey);
+await keyManager.tryKeys('gemini', settings.apiKeyRetryStrategy, userApiKeys, async (apiKey) => {
 
-```
 // ✅ تفعيل البحث إذا كان مفعّل بالإعدادات أو مفروض من الرسالة
 const triggerByUser = meta && meta.forceWebBrowsing === true;
 const useSearch = (settings.enableWebBrowsing === true || triggerByUser)
@@ -674,7 +672,6 @@ try {
     throw requestError;
   }
 }
-```
 
 });
 }
