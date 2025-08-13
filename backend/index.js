@@ -437,12 +437,24 @@ const keyManager = {
             return result; // أرجع النتيجة الناجحة
 
         } catch (error) {
-            console.error(`[Key Manager] Key index ${keyIndex} for ${provider} failed. Error: ${error.message}`);
-            // في حالة الفشل، لا نزال نحدث المؤشر لتجنب استخدام نفس المفتاح الفاشل مرة أخرى
-            this.indices[provider] = (keyIndex + 1) % keyPool.length;
-            // ثم نرمي الخطأ ليعرف المستخدم أن الطلب فشل
-            throw error;
-        }
+  console.error(`[Key Manager] Key index ${keyIndex} for ${provider} failed. Error: ${error.message}`);
+
+  // حرك المؤشر للمفتاح التالي
+  this.indices[provider] = (keyIndex + 1) % keyPool.length;
+
+  // قرر إن كان الخطأ قابلًا لإعادة المحاولة (سقوف/شبكة/خادم)
+  const msg = String(error && (error.message || error.toString()) || '');
+  const retriable = /429|Too\\s*Many\\s*Requests|quota|rate\\s*limit|5\\d\\d|ECONNRESET|ETIMEDOUT|network/i.test(msg);
+
+  // إن كان قابلًا لإعادة المحاولة وجربنا أقل من عدد المفاتيح، جرّب الذي بعده
+  if (retriable && tryCount < keyPool.length - 1) {
+    tryCount++;
+    continue; // جرّب المفتاح التالي داخل الحلقة
+  }
+
+  // غير قابل لإعادة المحاولة أو استهلكنا كل المفاتيح → ارمِ الخطأ
+  throw error;
+}
     }
 };
 
