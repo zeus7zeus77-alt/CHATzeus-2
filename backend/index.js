@@ -468,22 +468,92 @@ async function handleChatRequest(req, res) {
     }
 }
 async function handleGeminiRequest(payload, res) {
-    const { chatHistory, attachments, settings } = payload;
-    // ✨✨✨ الإصلاح هنا: استخراج مفاتيح المستخدم من الإعدادات ✨✨✨
-    const userApiKeys = (settings.geminiApiKeys || []).map(k => k.key).filter(Boolean);
-    
-    await keyManager.tryKeys('gemini', settings.apiKeyRetryStrategy, userApiKeys, async (apiKey) => {
-        const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: settings.model });
-        const history = chatHistory.slice(0, -1).map(msg => ({ role: msg.role === 'user' ? 'user' : 'model', parts: [{ text: msg.content || '' }] }));
-        const lastMessage = chatHistory[chatHistory.length - 1];
-        const userParts = buildUserParts(lastMessage, attachments);
-        const chat = model.startChat({ history, generationConfig: { temperature: settings.temperature } });
-        const result = await chat.sendMessageStream(userParts);
-        res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Transfer-Encoding': 'chunked' });
-        for await (const chunk of result.stream) { res.write(chunk.text()); }
-        res.end();
+  const { chatHistory, attachments, settings } = payload;
+  const userApiKeys = (settings.geminiApiKeys || []).map(k => k.key).filter(Boolean);
+
+  await keyManager.tryKeys('gemini', settings.apiKeyRetryStrategy, userApiKeys, async (apiKey) => {
+    const genAI = new GoogleGenerativeAI(apiKey);
+
+    // 🔎 إن كان التصفح مفعّلًا واختيار الوضع "gemini" فعّل Google Search Grounding
+    const useSearch = settings.enableWebBrowsing === true && (settings.browsingMode || 'gemini') === 'gemini';
+    const dynThreshold = typeof settings.dynamicThreshold === 'number' ? settings.dynamicThreshold : 0.6;
+
+    // ملاحظة: أدوات 1.5 legacy اسمها googleSearchRetrieval بوضع ديناميكي
+    const tools = useSearch ? [{
+      googleSearchRetrieval: {
+        dynamicRetrievalConfig: {
+          // MODE_DYNAMIC يجعل النموذج يقرر متى يبحث
+          mode: "MODE_DYNAMIC",
+          dynamicThreshold: dynThreshold
+        }
+      }
+    }] : undefined;
+
+    // ❗ استخدم API v1beta لنماذج 1.5 عند الحاجة
+    const model = genAI.getGenerativeModel(
+      { model: settings.model, ...(tools ? { tools } : {}) },
+      { apiVersion: "v1beta" }
+    );
+
+    const history = chatHistory.slice(0, -1).map(msg => ({
+      role: msg.role === 'user' ? 'user' : 'model',
+      parts: [{ text: msg.content || '' }]
+    }));
+    const lastMessage = chatHistory[chatHistory.length - 1];
+    const userParts = buildUserParts(lastMessage, attachments);
+
+    const chat = model.startChat({
+      history,
+      generationConfig: { temperature: settings.temperature }
     });
+
+    const result = await chat.sendMessageStream(userParts);
+
+    res.writeHead(200, {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'Transfer-Encoding': 'chunked'
+    });
+
+    // بث النص مثل السابق
+    for await (const chunk of result.stream) {
+      res.write(chunk.text());
+    }
+
+    // ✅ بعد اكتمال البث: إن أردت عرض المصادر
+    try {
+      if (useSearch && settings.showSources) {
+        const finalResp = await result.response; // يحتوي groundingMetadata
+        const gm = finalResp?.candidates?.[0]?.groundingMetadata;
+        const cits = gm?.groundingChunks || gm?.citations || gm?.webSearchQueries;
+
+        // صياغة قائمة مصادر بسيطة من citations/groundingChunks
+        const lines = [];
+        if (Array.isArray(gm?.citations)) {
+          gm.citations.forEach((c, i) => {
+            const uri = c?.uri || c?.sourceUri || c?.source?.uri || '';
+            const title = c?.title || c?.sourceTitle || `مصدر ${i + 1}`;
+            if (uri) lines.push(`- ${title}: ${uri}`);
+          });
+        }
+        // في حال لم تُملأ citations، جرّب groundingChunks (لو فيها عناوين/روابط)
+        if (lines.length === 0 && Array.isArray(gm?.groundingChunks)) {
+          gm.groundingChunks.forEach((g, i) => {
+            const uri = g?.web?.uri || g?.source?.uri || '';
+            const title = g?.web?.title || `مصدر ${i + 1}`;
+            if (uri) lines.push(`- ${title}: ${uri}`);
+          });
+        }
+
+        if (lines.length > 0) {
+          res.write(`\n\n**المصادر:**\n${lines.join('\n')}`);
+        }
+      }
+    } catch (_) {
+      // تجاهل أي أخطاء في بناء قائمة المصادر حتى لا ينهار البث
+    }
+
+    res.end();
+  });
 }
 
 async function handleOpenRouterRequest(payload, res) {
