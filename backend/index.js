@@ -409,53 +409,39 @@ const keyManager = {
         gemini: 0,
         openrouter: 0
     },
+
     tryKeys: async function(provider, strategy, customKeys, action) {
-        // تحديد مجموعة المفاتيح الصحيحة (إما مفاتيح المستخدم أو المفاتيح العامة)
-        const keyPool = (customKeys && customKeys.length > 0) ? customKeys : this.keys[provider] || [];
-        if (keyPool.length === 0) {
-            throw new Error(`No API keys available for provider: ${provider}`);
-        }
+    const keyPool = (customKeys && customKeys.length > 0) ? customKeys : this.keys[provider] || [];
+    if (keyPool.length === 0) {
+        throw new Error(`No API keys available for provider: ${provider}`);
+    }
 
-        // ✨✨✨ منطق توزيع الحمل الجديد يبدأ هنا ✨✨✨
-
-        // 1. احصل على المؤشر الحالي للمفتاح الذي سنستخدمه هذه المرة
-        // هذا المؤشر خاص بالمفاتيح العامة فقط (لا معنى لتوزيع الحمل على مفتاح مستخدم واحد)
+    let tryCount = 0; // ✨ تعريف tryCount هنا
+    while (tryCount < keyPool.length) { // ✨ حلقة while بدل continue خارج الحلقة
         const keyIndex = (this.indices[provider] || 0);
-        
-        // 2. اختر المفتاح بناءً على المؤشر
         const keyToTry = keyPool[keyIndex];
         console.log(`[Key Manager] Load Balancing: Selected key index ${keyIndex} for provider ${provider}.`);
 
         try {
-            // 3. حاول تنفيذ الطلب باستخدام المفتاح المختار
             const result = await action(keyToTry);
-            
-            // 4. ✨ في حالة النجاح، قم بتحديث المؤشر للمرة القادمة ✨
-            // هذا هو سر توزيع الحمل: ننتقل إلى المفتاح التالي للطلب القادم
             this.indices[provider] = (keyIndex + 1) % keyPool.length;
-            
-            return result; // أرجع النتيجة الناجحة
-
+            return result;
         } catch (error) {
-  console.error(`[Key Manager] Key index ${keyIndex} for ${provider} failed. Error: ${error.message}`);
+            console.error(`[Key Manager] Key index ${keyIndex} for ${provider} failed. Error: ${error.message}`);
+            this.indices[provider] = (keyIndex + 1) % keyPool.length;
 
-  // حرك المؤشر للمفتاح التالي
-  this.indices[provider] = (keyIndex + 1) % keyPool.length;
+            const msg = String(error && (error.message || error.toString()) || '');
+            const retriable = /429|Too\s*Many\s*Requests|quota|rate\s*limit|5\d\d|ECONNRESET|ETIMEDOUT|network/i.test(msg);
 
-  // قرر إن كان الخطأ قابلًا لإعادة المحاولة (سقوف/شبكة/خادم)
-  const msg = String(error && (error.message || error.toString()) || '');
-  const retriable = /429|Too\\s*Many\\s*Requests|quota|rate\\s*limit|5\\d\\d|ECONNRESET|ETIMEDOUT|network/i.test(msg);
+            if (retriable && tryCount < keyPool.length - 1) {
+                tryCount++;
+                continue; // ✅ الآن في مكان صحيح داخل الحلقة
+            }
 
-  // إن كان قابلًا لإعادة المحاولة وجربنا أقل من عدد المفاتيح، جرّب الذي بعده
-  if (retriable && tryCount < keyPool.length - 1) {
-    tryCount++;
-    continue; // جرّب المفتاح التالي داخل الحلقة
-  }
-
-  // غير قابل لإعادة المحاولة أو استهلكنا كل المفاتيح → ارمِ الخطأ
-  throw error;
-}
+            throw error;
+        }
     }
+}
 };
 
 async function handleChatRequest(req, res) {
