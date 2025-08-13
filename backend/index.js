@@ -489,12 +489,16 @@ async function handleGeminiRequest(payload, res) {
       }
     }] : undefined;
 
-    // ✅ تحديد الموديل من القائمة المسموح بها فقط
-    const allowedGroundingModels = ['gemini-1.5-flash', 'gemini-2.5-pro', 'gemini-2.5-flash'];
-    let chosenModel = settings.model || 'gemini-1.5-flash';
-    if (!allowedGroundingModels.includes(chosenModel)) {
-      chosenModel = 'gemini-1.5-flash'; // الافتراضي
-    }
+// ✅ تحديد الموديل
+const allowedGroundingModels = ['gemini-1.5-flash', 'gemini-2.5-pro', 'gemini-2.5-flash'];
+let chosenModel = settings.model || 'gemini-1.5-flash';
+
+if (useSearch) {
+  // 🔹 عند البحث، اجبر على استخدام gemini-2.5-pro (أو flash لو أردت)
+  chosenModel = 'gemini-2.5-flash';
+} else if (!allowedGroundingModels.includes(chosenModel)) {
+  chosenModel = 'gemini-1.5-flash'; // الافتراضي عند عدم البحث
+}
 
     // ❗ استخدم API v1beta
     const model = genAI.getGenerativeModel(
