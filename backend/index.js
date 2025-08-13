@@ -519,7 +519,7 @@ model = genAI.getGenerativeModel({
     model: chosenModel,
     apiVersion: "v1beta"
 });
-
+}
 
         // ✅ إعداد أدوات البحث المحسنة
         let tools = undefined;
