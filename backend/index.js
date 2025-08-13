@@ -477,9 +477,9 @@ async function handleGeminiRequest(payload, res) {
         const genAI = new GoogleGenerativeAI(apiKey);
 
         // ✅ تفعيل البحث إذا كان مفعّل بالإعدادات أو مفروض من الرسالة
-        const triggerByUser = meta && meta.forceWebBrowse === true;
-        const useSearch = (settings.enableWebBrowse === true || triggerByUser)
-                          && (settings.BrowseMode || 'gemini') === 'gemini';
+        const triggerByUser = meta && meta.forceWebBrowsing === true;
+const useSearch = (settings.enableWebBrowsing === true || triggerByUser)
+                  && (settings.browsingMode || 'gemini') === 'gemini';
 
         console.log(`🔍 Search Debug:`, {
           enableWebBrowse: settings.enableWebBrowse,
@@ -509,16 +509,16 @@ async function handleGeminiRequest(payload, res) {
 
         // 🚨 الإصلاح الحاسم: لا تستخدم apiVersion مطلقاً مع البحث
         let model;
-        if (useSearch) {
-          // ✅ بدون apiVersion للبحث
-          model = genAI.getGenerativeModel({ model: chosenModel });
-          console.log('🔍 Gemini model initialized for search (no apiVersion)');
-        } else {
-// ✅ الحل الصحيح لتهيئة النموذج في حالة الدردشة العادية
-model = genAI.getGenerativeModel({
-    model: chosenModel,
-    apiVersion: "v1beta"
-});
+if (useSearch) {
+  // بدون apiVersion أثناء البحث
+  model = genAI.getGenerativeModel({ model: chosenModel });
+  console.log('🔍 Gemini model initialized for search (no apiVersion)');
+} else {
+  // apiVersion كوسيط ثانٍ
+  model = genAI.getGenerativeModel(
+    { model: chosenModel },
+    { apiVersion: "v1beta" }
+  );
 }
 
         // ✅ إعداد أدوات البحث المحسنة
