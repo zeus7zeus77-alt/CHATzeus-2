@@ -468,66 +468,74 @@ async function handleChatRequest(req, res) {
     }
 }
 async function handleGeminiRequest(payload, res) {
-  const { chatHistory, attachments, settings } = payload;
+  const { chatHistory, attachments, settings, meta } = payload;
   const userApiKeys = (settings.geminiApiKeys || []).map(k => k.key).filter(Boolean);
 
   await keyManager.tryKeys('gemini', settings.apiKeyRetryStrategy, userApiKeys, async (apiKey) => {
     const genAI = new GoogleGenerativeAI(apiKey);
 
-    // 🔎 إن كان التصفح مفعّلًا واختيار الوضع "gemini" فعّل Google Search Grounding
-    const useSearch = settings.enableWebBrowsing === true && (settings.browsingMode || 'gemini') === 'gemini';
+    // ✅ تفعيل البحث إذا كان مفعّل بالإعدادات أو مفروض من الرسالة
+    const triggerByUser = meta && meta.forceWebBrowsing === true;
+    const useSearch = (settings.enableWebBrowsing === true || triggerByUser)
+                      && (settings.browsingMode || 'gemini') === 'gemini';
+
     const dynThreshold = typeof settings.dynamicThreshold === 'number' ? settings.dynamicThreshold : 0.6;
 
-    // ملاحظة: أدوات 1.5 legacy اسمها googleSearchRetrieval بوضع ديناميكي
+    // ✅ أدوات البحث
     const tools = useSearch ? [{
       googleSearchRetrieval: {
         dynamicRetrievalConfig: {
-          // MODE_DYNAMIC يجعل النموذج يقرر متى يبحث
           mode: "MODE_DYNAMIC",
           dynamicThreshold: dynThreshold
         }
       }
     }] : undefined;
 
-    // ❗ استخدم API v1beta لنماذج 1.5 عند الحاجة
+    // ✅ تحديد الموديل من القائمة المسموح بها فقط
+    const allowedGroundingModels = ['gemini-1.5-flash', 'gemini-2.5-pro', 'gemini-2.5-flash'];
+    let chosenModel = settings.model || 'gemini-1.5-flash';
+    if (!allowedGroundingModels.includes(chosenModel)) {
+      chosenModel = 'gemini-1.5-flash'; // الافتراضي
+    }
+
+    // ❗ استخدم API v1beta
     const model = genAI.getGenerativeModel(
-      { model: settings.model, ...(tools ? { tools } : {}) },
+      { model: chosenModel },
       { apiVersion: "v1beta" }
     );
 
-    const history = chatHistory.slice(0, -1).map(msg => ({
-      role: msg.role === 'user' ? 'user' : 'model',
-      parts: [{ text: msg.content || '' }]
-    }));
-    const lastMessage = chatHistory[chatHistory.length - 1];
-    const userParts = buildUserParts(lastMessage, attachments);
+    // تجهيز السجل بصيغة contents
+    const contents = [
+      ...chatHistory.slice(0, -1).map(msg => ({
+        role: msg.role === 'user' ? 'user' : 'model',
+        parts: [{ text: msg.content || '' }]
+      })),
+      { role: 'user', parts: buildUserParts(chatHistory[chatHistory.length - 1], attachments) }
+    ];
 
-    const chat = model.startChat({
-      history,
+    // إرسال الطلب مع الأدوات
+    const result = await model.generateContentStream({
+      contents,
+      tools: tools || [],
       generationConfig: { temperature: settings.temperature }
     });
 
-    const result = await chat.sendMessageStream(userParts);
-
+    // بث الرد
     res.writeHead(200, {
       'Content-Type': 'text/plain; charset=utf-8',
       'Transfer-Encoding': 'chunked'
     });
-
-    // بث النص مثل السابق
     for await (const chunk of result.stream) {
       res.write(chunk.text());
     }
 
-    // ✅ بعد اكتمال البث: إن أردت عرض المصادر
+    // ✅ إلحاق المصادر إن لزم
     try {
       if (useSearch && settings.showSources) {
-        const finalResp = await result.response; // يحتوي groundingMetadata
+        const finalResp = await result.response;
         const gm = finalResp?.candidates?.[0]?.groundingMetadata;
-        const cits = gm?.groundingChunks || gm?.citations || gm?.webSearchQueries;
-
-        // صياغة قائمة مصادر بسيطة من citations/groundingChunks
         const lines = [];
+
         if (Array.isArray(gm?.citations)) {
           gm.citations.forEach((c, i) => {
             const uri = c?.uri || c?.sourceUri || c?.source?.uri || '';
@@ -535,7 +543,6 @@ async function handleGeminiRequest(payload, res) {
             if (uri) lines.push(`- ${title}: ${uri}`);
           });
         }
-        // في حال لم تُملأ citations، جرّب groundingChunks (لو فيها عناوين/روابط)
         if (lines.length === 0 && Array.isArray(gm?.groundingChunks)) {
           gm.groundingChunks.forEach((g, i) => {
             const uri = g?.web?.uri || g?.source?.uri || '';
@@ -549,7 +556,7 @@ async function handleGeminiRequest(payload, res) {
         }
       }
     } catch (_) {
-      // تجاهل أي أخطاء في بناء قائمة المصادر حتى لا ينهار البث
+      // تجاهل أي أخطاء في المصادر
     }
 
     res.end();
