@@ -470,211 +470,221 @@ async function handleChatRequest(req, res) {
 // =================================================================
 
 async function handleGeminiRequest(payload, res) {
-const { chatHistory, attachments, settings, meta } = payload;
-const userApiKeys = (settings.geminiApiKeys || []).map(k => k.key).filter(Boolean);
+    const { chatHistory, attachments, settings, meta } = payload;
+    const userApiKeys = (settings.geminiApiKeys || []).map(k => k.key).filter(Boolean);
 
-await keyManager.tryKeys('gemini', settings.apiKeyRetryStrategy, userApiKeys, async (apiKey) => {
+    await keyManager.tryKeys('gemini', settings.apiKeyRetryStrategy, userApiKeys, async (apiKey) => {
+        const genAI = new GoogleGenerativeAI(apiKey);
 
-// ✅ تفعيل البحث إذا كان مفعّل بالإعدادات أو مفروض من الرسالة
-const triggerByUser = meta && meta.forceWebBrowsing === true;
-const useSearch = (settings.enableWebBrowsing === true || triggerByUser)
-                  && (settings.browsingMode || 'gemini') === 'gemini';
+        // ✅ تفعيل البحث إذا كان مفعّل بالإعدادات أو مفروض من الرسالة
+        const triggerByUser = meta && meta.forceWebBrowse === true;
+        const useSearch = (settings.enableWebBrowse === true || triggerByUser)
+                          && (settings.BrowseMode || 'gemini') === 'gemini';
 
-console.log(`🔍 Search Debug:`, {
-  enableWebBrowsing: settings.enableWebBrowsing,
-  triggerByUser,
-  useSearch,
-  model: settings.model
-});
-
-// ✅ النماذج المدعومة للبحث (محدثة)
-const searchSupportedModels = [
-  'gemini-1.5-flash', 
-  'gemini-1.5-pro',
-  'gemini-2.5-flash',
-  'gemini-2.5-pro',
-  'gemini-2.0-flash'
-];
-
-let chosenModel = settings.model || 'gemini-1.5-flash';
-
-// ✅ التحقق من دعم النموذج للبحث
-if (useSearch && !searchSupportedModels.includes(chosenModel)) {
-  console.log(`⚠️ Model ${chosenModel} doesn't support search, falling back to gemini-1.5-flash`);
-  chosenModel = 'gemini-1.5-flash';
-}
-
-console.log(`🤖 Using model: ${chosenModel} with search: ${useSearch}`);
-
-// 🚨 الإصلاح الحاسم: لا تستخدم apiVersion مطلقاً مع البحث
-let model;
-if (useSearch) {
-  // ✅ بدون apiVersion للبحث
-  model = genAI.getGenerativeModel({ model: chosenModel });
-  console.log('🔍 Gemini model initialized for search (no apiVersion)');
-} else {
-  // ✅ مع apiVersion للاستخدام العادي
-  model = genAI.getGenerativeModel(
-    { model: chosenModel }, 
-    { apiVersion: "v1beta" }
-  );
-  console.log('💬 Gemini model initialized for chat (with apiVersion)');
-}
-
-// ✅ إعداد أدوات البحث المحسنة
-let tools = undefined;
-if (useSearch) {
-  const dynThreshold = typeof settings.dynamicThreshold === 'number' 
-    ? Math.max(0, Math.min(1, settings.dynamicThreshold)) 
-    : 0.6;
-    
-  tools = [{
-    googleSearchRetrieval: {
-      dynamicRetrievalConfig: {
-        mode: "MODE_DYNAMIC",
-        dynamicThreshold: dynThreshold
-      }
-    }
-  }];
-  
-  console.log(`🎯 Search tools configured with threshold: ${dynThreshold}`);
-}
-
-// تجهيز السجل بصيغة contents
-const contents = [
-  ...chatHistory.slice(0, -1).map(msg => ({
-    role: msg.role === 'user' ? 'user' : 'model',
-    parts: [{ text: msg.content || '' }]
-  })),
-  { role: 'user', parts: buildUserParts(chatHistory[chatHistory.length - 1], attachments) }
-];
-
-// ✅ إعداد الطلب النهائي
-const requestConfig = {
-  contents,
-  generationConfig: { 
-    temperature: settings.temperature || 0.7,
-    maxOutputTokens: 8192 // زيادة الحد الأقصى
-  }
-};
-
-// ✅ أضف الأدوات فقط عند البحث
-if (useSearch && tools) {
-  requestConfig.tools = tools;
-  console.log('🔍 Search tools added to request');
-}
-
-try {
-  console.log('📤 Sending request to Gemini...');
-  const result = await model.generateContentStream(requestConfig);
-
-  // بث الرد
-  res.writeHead(200, {
-    'Content-Type': 'text/plain; charset=utf-8',
-    'Transfer-Encoding': 'chunked'
-  });
-
-  let totalText = '';
-  for await (const chunk of result.stream) {
-    const text = chunk.text();
-    if (text) {
-      totalText += text;
-      res.write(text);
-    }
-  }
-
-  console.log(`✅ Response generated successfully (${totalText.length} chars)`);
-
-  // ✅ إلحاق المصادر مع معالجة محسنة
-  if (useSearch && settings.showSources) {
-    try {
-      console.log('🔍 Extracting search sources...');
-      const finalResp = await result.response;
-      const candidate = finalResp?.candidates?.[0];
-      const gm = candidate?.groundingMetadata;
-      
-      console.log('📊 Grounding metadata:', JSON.stringify(gm, null, 2));
-      
-      const sources = [];
-
-      // استخراج المصادر من citations
-      if (Array.isArray(gm?.citations)) {
-        console.log(`📚 Found ${gm.citations.length} citations`);
-        gm.citations.forEach((citation, i) => {
-          const uri = citation?.uri || citation?.sourceUri || citation?.source?.uri;
-          const title = citation?.title || citation?.sourceTitle || `مصدر ${i + 1}`;
-          if (uri) {
-            sources.push(`- [${title}](${uri})`);
-          }
+        console.log(`🔍 Search Debug:`, {
+          enableWebBrowse: settings.enableWebBrowse,
+          triggerByUser,
+          useSearch,
+          model: settings.model
         });
-      }
 
-      // استخراج من groundingChunks كبديل
-      if (sources.length === 0 && Array.isArray(gm?.groundingChunks)) {
-        console.log(`🌐 Found ${gm.groundingChunks.length} grounding chunks`);
-        gm.groundingChunks.forEach((chunk, i) => {
-          const uri = chunk?.web?.uri || chunk?.source?.uri;
-          const title = chunk?.web?.title || chunk?.title || `مصدر ${i + 1}`;
-          if (uri) {
-            sources.push(`- [${title}](${uri})`);
-          }
-        });
-      }
+        // ✅ النماذج المدعومة للبحث (محدثة)
+        const searchSupportedModels = [
+          'gemini-1.5-flash', 
+          'gemini-1.5-pro',
+          'gemini-2.5-flash',
+          'gemini-2.5-pro',
+          'gemini-2.0-flash'
+        ];
 
-      // عرض المصادر
-      if (sources.length > 0) {
-        console.log(`✅ Found ${sources.length} sources`);
-        res.write(`\n\n**🔍 المصادر:**\n${sources.join('\n')}`);
-      } else {
-        console.log('⚠️ No sources found in response metadata');
-        // تشخيص إضافي
-        if (gm) {
-          console.log('🔍 Available grounding metadata keys:', Object.keys(gm));
-        } else {
-          console.log('❌ No grounding metadata found');
+        let chosenModel = settings.model || 'gemini-1.5-flash';
+
+        // ✅ التحقق من دعم النموذج للبحث
+        if (useSearch && !searchSupportedModels.includes(chosenModel)) {
+          console.log(`⚠️ Model ${chosenModel} doesn't support search, falling back to gemini-1.5-flash`);
+          chosenModel = 'gemini-1.5-flash';
         }
-      }
 
-    } catch (sourceError) {
-      console.error('❌ Error extracting sources:', sourceError.message);
-      res.write('\n\n*تعذر استخراج المصادر*');
-    }
-  }
+        console.log(`🤖 Using model: ${chosenModel} with search: ${useSearch}`);
 
-  res.end();
-
-} catch (requestError) {
-  console.error('❌ Gemini request failed:', requestError.message);
-  
-  // معالجة أخطاء محددة
-  if (requestError.message.includes('Search Grounding is not supported')) {
-    console.log('🔄 Retrying without search tools...');
-    // إعادة المحاولة بدون البحث
-    const fallbackConfig = {
-      contents,
-      generationConfig: { temperature: settings.temperature || 0.7 }
-    };
-    
-    const fallbackResult = await model.generateContentStream(fallbackConfig);
-    res.writeHead(200, {
-      'Content-Type': 'text/plain; charset=utf-8',
-      'Transfer-Encoding': 'chunked'
-    });
-    
-    for await (const chunk of fallbackResult.stream) {
-      const text = chunk.text();
-      if (text) res.write(text);
-    }
-    
-    res.write('\n\n*ملاحظة: تم تعطيل البحث مؤقتاً لهذا الطلب*');
-    res.end();
-  } else {
-    throw requestError;
-  }
-}
-
+        // 🚨 الإصلاح الحاسم: لا تستخدم apiVersion مطلقاً مع البحث
+        let model;
+        if (useSearch) {
+          // ✅ بدون apiVersion للبحث
+          model = genAI.getGenerativeModel({ model: chosenModel });
+          console.log('🔍 Gemini model initialized for search (no apiVersion)');
+        } else {
+// ✅ الحل الصحيح لتهيئة النموذج في حالة الدردشة العادية
+model = genAI.getGenerativeModel({
+    model: chosenModel,
+    apiVersion: "v1beta"
 });
+
+
+        // ✅ إعداد أدوات البحث المحسنة
+        let tools = undefined;
+        if (useSearch) {
+          const dynThreshold = typeof settings.dynamicThreshold === 'number' 
+            ? Math.max(0, Math.min(1, settings.dynamicThreshold)) 
+            : 0.6;
+            
+          // ✨✨✨ الإضافة المقترحة للتوافق مع النماذج الجديدة ✨✨✨
+          const isLegacyModel = chosenModel.startsWith('gemini-1.5') || chosenModel.startsWith('gemini-2.0');
+          
+          if (isLegacyModel) {
+              tools = [{
+                googleSearchRetrieval: {
+                  dynamicRetrievalConfig: {
+                    mode: "MODE_DYNAMIC",
+                    dynamicThreshold: dynThreshold
+                  }
+                }
+              }];
+          } else {
+              tools = [{
+                  googleSearch: {}
+              }];
+          }
+          // ✨✨✨ نهاية الإضافة ✨✨✨
+
+          console.log(`🎯 Search tools configured with threshold: ${dynThreshold}`);
+        }
+
+        // تجهيز السجل بصيغة contents
+        const contents = [
+          ...chatHistory.slice(0, -1).map(msg => ({
+            role: msg.role === 'user' ? 'user' : 'model',
+            parts: [{ text: msg.content || '' }]
+          })),
+          { role: 'user', parts: buildUserParts(chatHistory[chatHistory.length - 1], attachments) }
+        ];
+
+        // ✅ إعداد الطلب النهائي
+        const requestConfig = {
+          contents,
+          generationConfig: { 
+            temperature: settings.temperature || 0.7,
+            maxOutputTokens: 8192 // زيادة الحد الأقصى
+          }
+        };
+
+        // ✅ أضف الأدوات فقط عند البحث
+        if (useSearch && tools) {
+          requestConfig.tools = tools;
+          console.log('🔍 Search tools added to request');
+        }
+
+        try {
+          console.log('📤 Sending request to Gemini...');
+          const result = await model.generateContentStream(requestConfig);
+
+          // بث الرد
+          res.writeHead(200, {
+            'Content-Type': 'text/plain; charset=utf-8',
+            'Transfer-Encoding': 'chunked'
+          });
+
+          let totalText = '';
+          for await (const chunk of result.stream) {
+            const text = chunk.text();
+            if (text) {
+              totalText += text;
+              res.write(text);
+            }
+          }
+
+          console.log(`✅ Response generated successfully (${totalText.length} chars)`);
+
+          // ✅ إلحاق المصادر مع معالجة محسنة
+          if (useSearch && settings.showSources) {
+            try {
+              console.log('🔍 Extracting search sources...');
+              const finalResp = await result.response;
+              const candidate = finalResp?.candidates?.[0];
+              const gm = candidate?.groundingMetadata;
+              
+              console.log('📊 Grounding metadata:', JSON.stringify(gm, null, 2));
+              
+              const sources = [];
+
+              // استخراج المصادر من citations
+              if (Array.isArray(gm?.citations)) {
+                console.log(`📚 Found ${gm.citations.length} citations`);
+                gm.citations.forEach((citation, i) => {
+                  const uri = citation?.uri || citation?.sourceUri || citation?.source?.uri;
+                  const title = citation?.title || citation?.sourceTitle || `مصدر ${i + 1}`;
+                  if (uri) {
+                    sources.push(`- [${title}](${uri})`);
+                  }
+                });
+              }
+
+              // استخراج من groundingChunks كبديل
+              if (sources.length === 0 && Array.isArray(gm?.groundingChunks)) {
+                console.log(`🌐 Found ${gm.groundingChunks.length} grounding chunks`);
+                gm.groundingChunks.forEach((chunk, i) => {
+                  const uri = chunk?.web?.uri || chunk?.source?.uri;
+                  const title = chunk?.web?.title || chunk?.title || `مصدر ${i + 1}`;
+                  if (uri) {
+                    sources.push(`- [${title}](${uri})`);
+                  }
+                });
+              }
+
+              // عرض المصادر
+              if (sources.length > 0) {
+                console.log(`✅ Found ${sources.length} sources`);
+                res.write(`\n\n**🔍 المصادر:**\n${sources.join('\n')}`);
+              } else {
+                console.log('⚠️ No sources found in response metadata');
+                // تشخيص إضافي
+                if (gm) {
+                  console.log('🔍 Available grounding metadata keys:', Object.keys(gm));
+                } else {
+                  console.log('❌ No grounding metadata found');
+                }
+              }
+
+            } catch (sourceError) {
+              console.error('❌ Error extracting sources:', sourceError.message);
+              res.write('\n\n*تعذر استخراج المصادر*');
+            }
+          }
+
+          res.end();
+
+        } catch (requestError) {
+          console.error('❌ Gemini request failed:', requestError.message);
+          
+          // معالجة أخطاء محددة
+          if (requestError.message.includes('Search Grounding is not supported')) {
+            console.log('🔄 Retrying without search tools...');
+            // إعادة المحاولة بدون البحث
+            const fallbackConfig = {
+              contents,
+              generationConfig: { temperature: settings.temperature || 0.7 }
+            };
+            
+            const fallbackResult = await model.generateContentStream(fallbackConfig);
+            res.writeHead(200, {
+              'Content-Type': 'text/plain; charset=utf-8',
+              'Transfer-Encoding': 'chunked'
+            });
+            
+            for await (const chunk of fallbackResult.stream) {
+              const text = chunk.text();
+              if (text) res.write(text);
+            }
+            
+            res.write('\n\n*ملاحظة: تم تعطيل البحث مؤقتاً لهذا الطلب*');
+            res.end();
+          } else {
+            throw requestError;
+          }
+        }
+    });
 }
+
 
 async function handleOpenRouterRequest(payload, res) {
     const { chatHistory, settings } = payload;
