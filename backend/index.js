@@ -715,20 +715,41 @@ async function handleCustomProviderRequest(payload, res) {
 function buildUserParts(lastMessage, attachments) {
     const userParts = [];
     if (lastMessage.content) userParts.push({ text: lastMessage.content });
+    
     if (attachments) {
         attachments.forEach(file => {
             if (file.dataType === 'image' && file.content) {
                 userParts.push({ inline_data: { mime_type: file.mimeType, data: file.content } });
             } else if (file.dataType === 'text' && file.content) {
                 userParts.push({ text: `\n\n--- محتوى الملف: ${file.name} ---\n${file.content}\n--- نهاية الملف ---` });
+            } else if (file.fileUrl) {
+                // التعامل مع الملفات المرفوعة إلى Cloudinary
+                const isImage = file.type === 'image' || (file.mimeType && file.mimeType.startsWith('image/'));
+                if (isImage) {
+                    userParts.push({ text: `\n\n--- صورة مرفقة: ${file.name} ---\nرابط الصورة: ${file.fileUrl}\nيرجى تحليل الصورة من الرابط المرفق.\n--- نهاية المرفق ---` });
+                } else {
+                    userParts.push({ text: `\n\n--- ملف مرفق: ${file.name} ---\nنوع الملف: ${file.type || file.mimeType || 'غير معروف'}\nحجم الملف: ${formatBytes(file.size)}\nرابط الملف: ${file.fileUrl}\n--- نهاية المرفق ---` });
+                }
             }
         });
     }
+    
     if (userParts.length > 0 && userParts.every(p => !p.text)) {
         userParts.unshift({ text: "حلل المرفقات:" });
     }
     return userParts;
 }
+
+// إضافة دالة مساعدة لتنسيق حجم الملف
+function formatBytes(bytes, decimals = 2) {
+    if (bytes === 0) return '0 بايت';
+    const k = 1024;
+    const dm = decimals < 0 ? 0 : decimals;
+    const sizes = ['بايت', 'ك.ب', 'م.ب', 'ج.ب', 'ت.ب'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+}
+
 function formatMessagesForOpenAI(chatHistory) {
     return chatHistory.map(msg => ({ role: msg.role, content: msg.content || '' }));
 }
