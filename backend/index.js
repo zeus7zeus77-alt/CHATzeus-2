@@ -324,7 +324,7 @@ app.put('/api/settings', verifyToken, async (req, res) => {
         const userId = new mongoose.Types.ObjectId(req.user.id);
         const receivedSettings = req.body;
 
-        // ✨✨✨ الإصلاح الحاسم: انتقاء الحقول المعروفة فقط ✨✨✨
+// ✨✨✨ الإصلاح الحاسم: انتقاء الحقول المعروفة فقط ✨✨✨
         const allowedUpdates = {
             provider: receivedSettings.provider,
             model: receivedSettings.model,
@@ -332,10 +332,16 @@ app.put('/api/settings', verifyToken, async (req, res) => {
             customPrompt: receivedSettings.customPrompt,
             apiKeyRetryStrategy: receivedSettings.apiKeyRetryStrategy,
             fontSize: receivedSettings.fontSize,
+            theme: receivedSettings.theme,
             geminiApiKeys: receivedSettings.geminiApiKeys,
             openrouterApiKeys: receivedSettings.openrouterApiKeys,
             customProviders: receivedSettings.customProviders,
-            customModels: receivedSettings.customModels
+            customModels: receivedSettings.customModels,
+            // ✨ إعدادات البحث الجديدة ✨
+            enableWebBrowsing: receivedSettings.enableWebBrowsing,
+            browsingMode: receivedSettings.browsingMode,
+            showSources: receivedSettings.showSources,
+            dynamicThreshold: receivedSettings.dynamicThreshold
         };
 
         // إزالة أي حقول غير معرفة (undefined) لتجنب المشاكل
