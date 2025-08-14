@@ -222,50 +222,6 @@ app.post('/api/chat', verifyToken, async (req, res) => {
 });
 
 // =================================================================
-// مسار الترجمة الجديد
-// =================================================================
-app.post('/api/translate', async (req, res) => {
-  try {
-    const { provider = 'gemini', source = '', glossary = [], chapterName = '' } = req.body || {};
-    if (!source.trim()) return res.status(400).json({ error: 'no_source' });
-
-    const system = [
-      'ترجم إلى العربية الفصحى بأسلوب واضح.',
-      'تجنّب إدخال كلمات إنجليزية إلا عند الضرورة.',
-      'احترم المسرد الآتي إن وُجد.'
-    ].join('\n');
-
-    const glossaryText = glossary.length
-      ? '\nالمسرد:\n' + glossary.map(t => `- ${t.en} => ${t.ar}`).join('\n')
-      : '';
-
-    const prompt = `${system}${glossaryText}\n\nالنص:\n${source}`;
-
-    let output = '';
-    if (provider === 'gemini') {
-      output = '← هنا تضع نتيجة Gemini →';
-    } else if (provider === 'openai') {
-      output = '← هنا تضع نتيجة OpenAI →';
-    } else if (provider === 'together') {
-      output = '← هنا تضع نتيجة Together →';
-    } else {
-      return res.status(400).json({ error: 'bad_provider' });
-    }
-
-    return res.json({ translation: output });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: 'server_error' });
-  }
-});
-
-// =================================================================
-// تسجيل الدخول مع جوجل
-// =================================================================
-app.get('/auth/google', (req, res) => {
-  // ... كود تسجيل الدخول
-});
-// =================================================================
 // ✨ نقاط نهاية جديدة للبيانات (تضاف في القسم 5)
 // =================================================================
 
