@@ -550,14 +550,29 @@ if (useSearch) {
           console.log(`🎯 Search tools configured with threshold: ${dynThreshold}`);
         }
 
-        // تجهيز السجل بصيغة contents
-        const contents = [
-          ...chatHistory.slice(0, -1).map(msg => ({
+// تجهيز السجل بصيغة contents مع إضافة البرومبت المخصص
+        const contents = [];
+        
+        // إضافة البرومبت المخصص في البداية إذا كان موجوداً
+        if (settings.customPrompt && settings.customPrompt.trim()) {
+            contents.push({
+                role: 'user',
+                parts: [{ text: settings.customPrompt }]
+            });
+            contents.push({
+                role: 'model',
+                parts: [{ text: 'مفهوم، سأتبع هذه التعليمات في جميع ردودي.' }]
+            });
+        }
+        
+        // إضافة المحادثات السابقة
+        contents.push(...chatHistory.slice(0, -1).map(msg => ({
             role: msg.role === 'user' ? 'user' : 'model',
             parts: [{ text: msg.content || '' }]
-          })),
-          { role: 'user', parts: buildUserParts(chatHistory[chatHistory.length - 1], attachments) }
-        ];
+        })));
+        
+        // إضافة الرسالة الأخيرة مع المرفقات
+        contents.push({ role: 'user', parts: buildUserParts(chatHistory[chatHistory.length - 1], attachments) });
 
         // ✅ إعداد الطلب النهائي
         const requestConfig = {
@@ -594,6 +609,11 @@ if (useSearch) {
           }
 
           console.log(`✅ Response generated successfully (${totalText.length} chars)`);
+          
+          // إضافة سياق البحث للرد إذا تم استخدام البحث
+          if (useSearch) {
+            totalText = `[تم البحث في الويب للحصول على أحدث المعلومات]\n\n${totalText}`;
+          }
 
           // ✅ إلحاق المصادر مع معالجة محسنة
           if (useSearch && settings.showSources) {
@@ -612,9 +632,46 @@ if (useSearch) {
                 console.log(`📚 Found ${gm.citations.length} citations`);
                 gm.citations.forEach((citation, i) => {
                   const uri = citation?.uri || citation?.sourceUri || citation?.source?.uri;
-                  const title = citation?.title || citation?.sourceTitle || `مصدر ${i + 1}`;
-                  if (uri) {
+                  let title = citation?.title || citation?.sourceTitle || citation?.source?.title;
+                  
+                  // تنظيف العنوان وتقصيره إذا كان طويلاً
+                  if (title && title.length > 80) {
+                    title = title.substring(0, 77) + '...';
+                  }
+                  if (!title) title = `مصدر ${i + 1}`;
+                  
+                  if (uri && uri.startsWith('http')) {
                     sources.push(`- [${title}](${uri})`);
+                  }
+                });
+              }
+
+              // استخراج من groundingChunks كبديل
+              if (sources.length === 0 && Array.isArray(gm?.groundingChunks)) {
+                console.log(`🌐 Found ${gm.groundingChunks.length} grounding chunks`);
+                gm.groundingChunks.forEach((chunk, i) => {
+                  const uri = chunk?.web?.uri || chunk?.source?.uri;
+                  let title = chunk?.web?.title || chunk?.title || chunk?.source?.title;
+                  
+                  // تنظيف العنوان وتقصيره إذا كان طويلاً
+                  if (title && title.length > 80) {
+                    title = title.substring(0, 77) + '...';
+                  }
+                  if (!title) title = `مصدر ${i + 1}`;
+                  
+                  if (uri && uri.startsWith('http')) {
+                    sources.push(`- [${title}](${uri})`);
+                  }
+                });
+              }
+              
+              // استخراج من أي هياكل أخرى محتملة
+              if (sources.length === 0 && gm?.searchEntryPoints) {
+                console.log(`🎯 Found search entry points`);
+                gm.searchEntryPoints.forEach((entry, i) => {
+                  if (entry?.renderedContent && entry.url) {
+                    const title = entry.title || `نتيجة البحث ${i + 1}`;
+                    sources.push(`- [${title}](${entry.url})`);
                   }
                 });
               }
