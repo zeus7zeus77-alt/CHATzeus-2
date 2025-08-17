@@ -231,14 +231,17 @@ app.post('/api/team_chat', verifyToken, async (req, res) => {
   });
 
   try {
-    const { history, settings } = req.body || {};
+    // قراءة البيانات من chatHistory أو history
+    const { chatHistory, history, settings } = req.body || {};
+    const messages = chatHistory || history || [];
+    
     if (!settings || !settings.team || !Array.isArray(settings.team.members) || settings.team.members.length === 0) {
       res.write('❌ لا يوجد أعضاء محددون في وضع الفريق.\n');
       return res.end();
     }
 
-    const lastUser = [...(history || [])].reverse().find(m => m.role === 'user')?.content || '';
-    const shortContext = Array.isArray(history) ? history.slice(-10) : [];
+    const lastUser = [...messages].reverse().find(m => m.role === 'user')?.content || '';
+    const shortContext = Array.isArray(messages) ? messages.slice(-10) : [];
     const teamThread = [];
 
     teamThread.push({
