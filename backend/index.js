@@ -222,6 +222,118 @@ app.post('/api/chat', verifyToken, async (req, res) => {
 });
 
 // =================================================================
+// 🚩 مسار وضع الفريق (بث حي حقيقي — مع علامات BEGIN/END لكل متحدث)
+// =================================================================
+app.post('/api/team_chat', verifyToken, async (req, res) => {
+  res.writeHead(200, {
+    'Content-Type': 'text/plain; charset=utf-8',
+    'Transfer-Encoding': 'chunked'
+  });
+
+  try {
+    const { history, settings } = req.body || {};
+    if (!settings || !settings.team || !Array.isArray(settings.team.members) || settings.team.members.length === 0) {
+      res.write('❌ لا يوجد أعضاء محددون في وضع الفريق.\n');
+      return res.end();
+    }
+
+    const lastUser = [...(history || [])].reverse().find(m => m.role === 'user')?.content || '';
+    const shortContext = Array.isArray(history) ? history.slice(-10) : [];
+    const teamThread = [];
+
+    teamThread.push({
+      role: 'system',
+      content:
+`أنت منسّق لفريق خبراء حقيقي. القواعد:
+- النقاش تتابعي صارم: عضو واحد يتحدث ثم يتوقف ليرى التالي ردّه.
+- كل عضو يرى كامل خيط الفريق حتى لحظته.
+- احترم شخصية ودور كل عضو.
+- الهدف: حلول عملية مختصرة مع كود/خطوات عند الحاجة.`
+    });
+
+    teamThread.push({
+      role: 'user',
+      content: `مهمة المستخدم:\n${lastUser}\n\nملخص الحوار الأخير:\n${JSON.stringify(shortContext)}`
+    });
+
+    const coord = settings.team.coordinator || {};
+
+    // 2) خطة المنسّق
+const coordName = coord.name || 'الوكيل';
+const coordRole = coord.role || 'منسّق';
+const coordPersona = coord.persona || '';
+
+res.write(`⟦AGENT:BEGIN|${coordName}|${coordRole}⟧`);
+await streamOneModel(
+  coord.provider || 'gemini',
+  coord.model || 'gemini-1.5-pro',
+  [
+    ...teamThread,
+    {
+      role: 'system',
+      content: `المنسّق: ${coordName}\nالدور: ${coordRole}\n${coordPersona ? 'الوصف: ' + coordPersona : ''}`
+    }
+  ],
+  settings,
+  (text) => res.write(text)
+);
+res.write(`⟦AGENT:END⟧`);
+    teamThread.push({ role: 'assistant', content: '(تم بث خطة المنسّق)' });
+
+    // 3) الأعضاء
+    for (const mem of settings.team.members) {
+      const sysPersona = (mem.persona || mem.role)
+        ? `شخصية العضو: ${mem.name || 'عضو'} — ${mem.role || ''}\n${mem.persona || ''}`
+        : '';
+
+      const memName = mem.name || 'عضو';
+const memRole = mem.role || 'مشارك';
+const memPersona = mem.persona || '';
+
+res.write(`⟦AGENT:BEGIN|${memName}|${memRole}⟧`);
+await streamOneModel(
+  mem.provider || 'gemini',
+  mem.model || 'gemini-1.5-flash',
+  [
+    ...teamThread,
+    {
+      role: 'system',
+      content: `العضو: ${memName}\nالدور: ${memRole}\n${memPersona ? 'الوصف: ' + memPersona : ''}`
+    }
+  ],
+  settings,
+  (text) => res.write(text)
+);
+res.write(`⟦AGENT:END⟧`);
+      teamThread.push({ role: 'assistant', content: `(تم بث رد ${mem.name || 'عضو'})` });
+    }
+
+    // 4) خلاصة المنسّق
+    res.write(`⟦AGENT:BEGIN|${coordName}|خلاصة⟧`);
+await streamOneModel(
+  coord.provider || 'gemini',
+  coord.model || 'gemini-1.5-pro',
+  [
+    ...teamThread,
+    {
+      role: 'system',
+      content: `المطلوب: خلاصة نهائية من ${coordName} (${coordRole})\nالتعليمات: لخّص مخرجات الفريق في نقاط تنفيذية موجزة، مع أي كود/أوامر لازمة.`
+    }
+  ],
+  settings,
+  (text) => res.write(text)
+);
+res.write(`⟦AGENT:END⟧`);
+
+    res.end();
+  } catch (e) {
+    console.error('team_chat (live stream) error:', e);
+    try { res.write(`\n❌ خطأ: ${e.message || 'Team mode failed'}`); } catch(_) {}
+    res.end();
+  }
+});
+
+// =================================================================
 // ✨ نقاط نهاية جديدة للبيانات (تضاف في القسم 5)
 // =================================================================
 
@@ -325,24 +437,27 @@ app.put('/api/settings', verifyToken, async (req, res) => {
         const receivedSettings = req.body;
 
 // ✨✨✨ الإصلاح الحاسم: انتقاء الحقول المعروفة فقط ✨✨✨
-        const allowedUpdates = {
-            provider: receivedSettings.provider,
-            model: receivedSettings.model,
-            temperature: receivedSettings.temperature,
-            customPrompt: receivedSettings.customPrompt,
-            apiKeyRetryStrategy: receivedSettings.apiKeyRetryStrategy,
-            fontSize: receivedSettings.fontSize,
-            theme: receivedSettings.theme,
-            geminiApiKeys: receivedSettings.geminiApiKeys,
-            openrouterApiKeys: receivedSettings.openrouterApiKeys,
-            customProviders: receivedSettings.customProviders,
-            customModels: receivedSettings.customModels,
-            // ✨ إعدادات البحث الجديدة ✨
-            enableWebBrowsing: receivedSettings.enableWebBrowsing,
-            browsingMode: receivedSettings.browsingMode,
-            showSources: receivedSettings.showSources,
-            dynamicThreshold: receivedSettings.dynamicThreshold
-        };
+const allowedUpdates = {
+    provider: receivedSettings.provider,
+    model: receivedSettings.model,
+    temperature: receivedSettings.temperature,
+    customPrompt: receivedSettings.customPrompt,
+    apiKeyRetryStrategy: receivedSettings.apiKeyRetryStrategy,
+    fontSize: receivedSettings.fontSize,
+    theme: receivedSettings.theme,
+    geminiApiKeys: receivedSettings.geminiApiKeys,
+    openrouterApiKeys: receivedSettings.openrouterApiKeys,
+    customProviders: receivedSettings.customProviders,
+    customModels: receivedSettings.customModels,
+    // ✨ إعدادات البحث الجديدة ✨
+    enableWebBrowsing: receivedSettings.enableWebBrowsing,
+    browsingMode: receivedSettings.browsingMode,
+    showSources: receivedSettings.showSources,
+    dynamicThreshold: receivedSettings.dynamicThreshold,
+    // 🚩 إعدادات وضع الفريق
+    activeMode: receivedSettings.activeMode,
+    team: receivedSettings.team
+};
 
         // إزالة أي حقول غير معرفة (undefined) لتجنب المشاكل
         Object.keys(allowedUpdates).forEach(key => allowedUpdates[key] === undefined && delete allowedUpdates[key]);
@@ -816,6 +931,139 @@ function formatBytes(bytes, decimals = 2) {
 function formatMessagesForOpenAI(chatHistory) {
     return chatHistory.map(msg => ({ role: msg.role, content: msg.content || '' }));
 }
+
+// =================================================================
+// 🎧 دالة موحّدة لبث ردّ نموذج واحد لحظيًا إلى كاتب خارجي (onToken)
+// =================================================================
+async function streamOneModel(provider, model, messages, settings, onToken) {
+  const apiKeyStrategy = settings?.apiKeyRetryStrategy || 'sequential';
+
+  if (provider === 'gemini') {
+    const userKeys = (settings.geminiApiKeys || []).map(k => k.key).filter(Boolean);
+    return await keyManager.tryKeys('gemini', apiKeyStrategy, userKeys, async (apiKey) => {
+      const genAI = new GoogleGenerativeAI(apiKey);
+
+      // Gemini لا يدعم role=system مباشرة — نطوّعها كـ user
+      const contents = messages.map(m => ({
+        role: m.role === 'user' ? 'user' : (m.role === 'system' ? 'user' : 'model'),
+        parts: [{ text: m.content || '' }]
+      }));
+
+      // تهيئة الموديل والبث
+      const gm = genAI.getGenerativeModel({ model });
+      const result = await gm.generateContentStream({
+        contents,
+        generationConfig: { temperature: settings.temperature || 0.7 }
+      });
+
+      for await (const chunk of result.stream) {
+        const text = typeof chunk.text === 'function' ? chunk.text() : (chunk?.candidates?.[0]?.content?.parts?.[0]?.text || '');
+        if (text) onToken(text);
+      }
+    });
+  }
+
+  if (provider === 'openrouter') {
+    const userKeys = (settings.openrouterApiKeys || []).map(k => k.key).filter(Boolean);
+    return await keyManager.tryKeys('openrouter', apiKeyStrategy, userKeys, async (apiKey) => {
+      // صيغة OpenAI-compatible
+      const formatted = messages.map(m => {
+        let role = m.role;
+        if (role !== 'system' && role !== 'user' && role !== 'assistant') {
+          role = (m.role === 'model') ? 'assistant' : 'user';
+        }
+        return { role, content: m.content || '' };
+      });
+
+      const body = JSON.stringify({
+        model,
+        messages: formatted,
+        temperature: settings.temperature || 0.7,
+        stream: true
+      });
+
+      const options = {
+        hostname: 'openrouter.ai',
+        path: '/api/v1/chat/completions',
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        }
+      };
+
+      await streamOpenAIToWriter(options, body, onToken);
+    });
+  }
+
+  // مزود مخصّص (OpenAI-compatible)
+  if (provider && provider.startsWith('custom_') && Array.isArray(settings?.customProviders)) {
+    const prov = settings.customProviders.find(p => p.id === provider);
+    if (!prov) throw new Error(`لم يتم العثور على المزود المخصص: ${provider}`);
+    const customKeys = (prov.apiKeys || []).map(k => k.key).filter(Boolean);
+
+    return await keyManager.tryKeys(provider, apiKeyStrategy, customKeys, async (apiKey) => {
+      const formatted = messages.map(m => {
+        let role = m.role;
+        if (role !== 'system' && role !== 'user' && role !== 'assistant') {
+          role = (m.role === 'model') ? 'assistant' : 'user';
+        }
+        return { role, content: m.content || '' };
+      });
+
+      const url = new URL(prov.baseUrl);
+      const body = JSON.stringify({ model, messages: formatted, temperature: settings.temperature || 0.7, stream: true });
+      const options = {
+        hostname: url.hostname,
+        path: url.pathname + (url.search || ''),
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }
+      };
+
+      await streamOpenAIToWriter(options, body, onToken);
+    });
+  }
+
+  throw new Error(`مزود غير مدعوم للبث الحي: ${provider}`);
+}
+
+// =================================================================
+// 🧩 مُحوّل بث OpenAI-compatible إلى كاتب خارجي (Callback)
+// =================================================================
+function streamOpenAIToWriter(options, body, onToken) {
+  return new Promise((resolve, reject) => {
+    const req = https.request(options, (apiRes) => {
+      if (apiRes.statusCode !== 200) {
+        let errorBody = '';
+        apiRes.on('data', d => errorBody += d);
+        apiRes.on('end', () => reject(new Error(`API Error: ${apiRes.statusCode} - ${errorBody}`)));
+        return;
+      }
+      let buffer = '';
+      apiRes.on('data', (chunk) => {
+        buffer += chunk.toString('utf8');
+        const parts = buffer.split('\n');
+        buffer = parts.pop(); // أبقِ آخر سطر غير مكتمل
+        for (const line of parts) {
+          const s = line.trim();
+          if (!s || !s.startsWith('data:')) continue;
+          const data = s.slice(5).trim();
+          if (data === '[DONE]') continue;
+          try {
+            const parsed = JSON.parse(data);
+            const text = parsed?.choices?.[0]?.delta?.content || '';
+            if (text) onToken(text);
+          } catch (_e) { /* تجاهل */ }
+        }
+      });
+      apiRes.on('end', () => resolve());
+    });
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+}
+
 function streamOpenAICompatibleAPI(options, body, res) {
     return new Promise((resolve, reject) => {
         const request = https.request(options, (apiResponse ) => {
