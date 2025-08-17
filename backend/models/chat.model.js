@@ -16,6 +16,7 @@ const chatSchema = new mongoose.Schema({
     user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     title: { type: String, required: true, default: 'محادثة جديدة' },
     messages: [messageSchema],
+    mode: { type: String, enum: ['chat', 'team'], default: 'chat' }, // 🚩 جديد
     createdAt: { type: Date, default: Date.now },
     updatedAt: { type: Date, default: Date.now },
     order: { type: Number, default: () => Date.now() }
