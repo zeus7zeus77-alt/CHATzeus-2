@@ -370,7 +370,10 @@ app.get('/api/data', verifyToken, async (req, res) => {
         }
 
         // 4. الآن بعد التأكد من وجود المستخدم، اجلب بياناته
-        const chats = await Chat.find({ user: user._id }).sort({ order: -1 });
+                const filter = { user: user._id };
+        if (req.query.mode) filter.mode = req.query.mode; // 🚩 فلترة اختيارية حسب الوضع
+
+        const chats = await Chat.find(filter).sort({ order: -1 });
         let settings = await Settings.findOne({ user: user._id });
 
         // 5. إذا لم تكن لديه إعدادات، أنشئها
@@ -415,10 +418,14 @@ app.post('/api/chats', verifyToken, async (req, res) => {
                 return res.status(404).json({ message: "Chat not found or user not authorized" });
             }
             res.json(updatedChat);
-        } else {
+                } else {
             // إذا كانت محادثة جديدة، احذف أي ID قديم أو غير صالح
             delete chatData._id; 
-            const newChat = new Chat({ ...chatData, user: userId });
+            const newChat = new Chat({
+                ...chatData,
+                user: userId,
+                mode: chatData.mode || 'chat'   // 🚩 إضافة الوضع هنا
+            });
             await newChat.save();
             res.status(201).json(newChat);
         }
