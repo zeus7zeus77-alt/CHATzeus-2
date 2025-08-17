@@ -405,30 +405,28 @@ app.post('/api/chats', verifyToken, async (req, res) => {
         const userId = new mongoose.Types.ObjectId(userIdString);
         const chatData = req.body;
 
-        // إذا كانت المحادثة موجودة (لديها ID صالح)
-        if (chatData._id && mongoose.Types.ObjectId.isValid(chatData._id)) {
-            const updatedChat = await Chat.findOneAndUpdate(
-                // ✨ 2. استخدام المعرّفات المحوّلة والصحيحة في الاستعلام ✨
-                { _id: new mongoose.Types.ObjectId(chatData._id), user: userId },
-                { ...chatData, user: userId },
-                { new: true, runValidators: true }
-            );
-            // إذا لم يتم العثور على المحادثة (لأنها لا تخص المستخدم)، أرجع خطأ
-            if (!updatedChat) {
-                return res.status(404).json({ message: "Chat not found or user not authorized" });
-            }
-            res.json(updatedChat);
-                } else {
-            // إذا كانت محادثة جديدة، احذف أي ID قديم أو غير صالح
-            delete chatData._id; 
-            const newChat = new Chat({
-                ...chatData,
-                user: userId,
-                mode: chatData.mode || 'chat'   // 🚩 إضافة الوضع هنا
-            });
-            await newChat.save();
-            res.status(201).json(newChat);
-        }
+// إذا كانت المحادثة موجودة (لديها ID صالح)
+if (chatData._id && mongoose.Types.ObjectId.isValid(chatData._id)) {
+  const { _id, ...rest } = chatData;         // ❗️لا تمرّر _id في التحديث
+  const updatedChat = await Chat.findOneAndUpdate(
+    { _id: new mongoose.Types.ObjectId(_id), user: userId },
+    { $set: { ...rest, user: userId } },     // استخدم $set لتحديث جزئي آمن
+    { new: true, runValidators: true }
+  );
+  if (!updatedChat) {
+    return res.status(404).json({ message: "Chat not found or user not authorized" });
+  }
+  return res.json(updatedChat);
+} else {
+  delete chatData._id; 
+  const newChat = new Chat({
+    ...chatData,
+    user: userId,
+    mode: chatData.mode || 'chat'
+  });
+  await newChat.save();
+  return res.status(201).json(newChat);
+}
     } catch (error) {
         console.error('Error saving chat:', error);
         res.status(500).json({ message: 'Failed to save chat' });
