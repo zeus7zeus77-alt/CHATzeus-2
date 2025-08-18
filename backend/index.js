@@ -35,6 +35,7 @@ const Chat = require('./models/chat.model.js');
 const Settings = require('./models/settings.model.js');
 const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
+const cloudinary = require('cloudinary').v2;
 
 // =================================================================
 // 3. إعداد تطبيق Express والخادم
@@ -64,6 +65,15 @@ const oauth2Client = new OAuth2Client(
 
 app.use(express.json({ limit: '50mb' }));
 
+// ✨ تهيئة Cloudinary ✨
+
+cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+    secure: true // استخدام HTTPS
+});
+console.log('✅ Cloudinary configured.');
 
 // =================================================================
 // 4. Middleware للتحقق من التوكن
@@ -85,27 +95,15 @@ function verifyToken(req, res, next) {
     });
 }
 
-// =================================================================
-// 3.5 تهيئة مجلد الرفع + إعداد Multer
-// =================================================================
-const uploadsDir = path.join(__dirname, 'uploads');
+// ✨ إزالة تهيئة مجلد الرفع المحلي (لم نعد نستخدمه) ✨
+// const uploadsDir = path.join(__dirname, 'uploads');
+// if (!fs.existsSync(uploadsDir)) {
+//   fs.mkdirSync(uploadsDir, { recursive: true });
+//   console.log('✅ Created uploads directory at:', uploadsDir);
+// }
 
-// تأكد من وجود مجلد الرفع
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-  console.log('✅ Created uploads directory at:', uploadsDir);
-}
-
-// إعداد التخزين لـ Multer
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, uploadsDir);
-  },
-  filename: function (req, file, cb) {
-    const ext = path.extname(file.originalname || '');
-    cb(null, `${uuidv4()}${ext}`);
-  }
-});
+// إعداد التخزين لـ Multer - الآن في الذاكرة
+const storage = multer.memoryStorage(); // ✨ تم التغيير هنا ✨
 
 // فلترة بسيطة للأنواع المسموحة (اختياري — عدّل حسب حاجتك)
 const allowedMime = new Set([
@@ -124,8 +122,9 @@ const upload = multer({
   }
 });
 
-// خدمة الملفات المرفوعة بشكل ثابت
-app.use('/uploads', express.static(uploadsDir));
+// ✨ إزالة خدمة الملفات المرفوعة بشكل ثابت (لم نعد نخدمها محليًا) ✨
+// app.use('/uploads', express.static(uploadsDir));
+
 
 // =================================================================
 // 5. نقاط النهاية (Routes)
@@ -135,18 +134,52 @@ app.use('/uploads', express.static(uploadsDir));
 // =================================================================
 app.post('/api/uploads', verifyToken, upload.array('files', 10), async (req, res) => {
   try {
-    const files = (req.files || []).map(f => ({
-      originalName: f.originalname,
-      filename: f.filename,
-      size: f.size,
-      mimeType: f.mimetype,
-      // رابط HTTP يصلح للواجهة الأمامية لعرض/تحميل الملف لاحقًا
-      url: `/uploads/${f.filename}`,
-      // مسار فعلي على السيرفر (لا ترسله للواجهة لو لا تحتاجه)
-      path: f.path
-    }));
+    const uploadedFilesInfo = [];
+    
+    for (const file of req.files) {
+        const fileInfo = {
+            originalName: file.originalname,
+            filename: uuidv4(), // Generate a unique ID for internal tracking
+            size: file.size,
+            mimeType: file.mimetype,
+            fileUrl: null, // هذا سيكون رابط Cloudinary أو placeholder
+            dataType: null, // 'image', 'text', 'binary'
+            content: null // للملفات النصية، تخزين المحتوى هنا
+        };
 
-    return res.status(201).json({ files });
+        // التحقق مما إذا كانت صورة
+        if (file.mimetype.startsWith('image/')) {
+            fileInfo.dataType = 'image';
+            try {
+                // تحويل Buffer إلى Base64 Data URI للرفع إلى Cloudinary
+                const b64 = Buffer.from(file.buffer).toString('base64');
+                const dataUri = `data:${file.mimetype};base64,${b64}`;
+                
+                const uploadResult = await cloudinary.uploader.upload(dataUri, {
+                    folder: 'chatzeus_uploads', // اختياري: تحديد مجلد في Cloudinary
+                    public_id: fileInfo.filename, // استخدام اسم الملف الذي تم إنشاؤه كـ public_id
+                    resource_type: 'image'
+                });
+                fileInfo.fileUrl = uploadResult.secure_url;
+                console.log(`✅ Uploaded image to Cloudinary: ${fileInfo.fileUrl}`);
+            } catch (uploadError) {
+                console.error('Cloudinary upload failed for image:', file.originalname, uploadError);
+                fileInfo.fileUrl = null; // الإشارة إلى الفشل
+                // يمكن هنا رمي خطأ أو الاستمرار وتسجيله
+            }
+        } else if (file.mimetype.startsWith('text/') || file.mimetype.includes('json') || file.mimetype.includes('xml') || file.mimetype.includes('javascript') || file.mimetype.includes('csv') || file.mimetype.includes('markdown')) {
+            fileInfo.dataType = 'text';
+            // للملفات النصية/الكود، تخزين المحتوى مباشرة (حسب "لا لاحقا")
+            fileInfo.content = file.buffer.toString('utf8');
+            // لا يوجد رفع خارجي للملفات النصية/الكود في الوقت الحالي
+        } else {
+            fileInfo.dataType = 'binary';
+            // لا يوجد محتوى أو رفع خارجي للملفات الثنائية الأخرى في الوقت الحالي
+        }
+        uploadedFilesInfo.push(fileInfo);
+    }
+
+    return res.status(201).json({ files: uploadedFilesInfo });
   } catch (e) {
     console.error('Upload error:', e);
     return res.status(500).json({ message: 'فشل رفع الملفات', error: e.message });
@@ -904,27 +937,27 @@ function buildUserParts(lastMessage, attachments) {
     
     if (attachments) {
         attachments.forEach(file => {
-            if (file.dataType === 'image' && file.content) {
-                userParts.push({ inline_data: { mime_type: file.mimeType, data: file.content } });
+            if (file.dataType === 'image' && file.fileUrl) { // ✨ استخدام file.fileUrl للصور
+                userParts.push({ fileData: { mimeType: file.mimeType, fileUri: file.fileUrl } });
             } else if (file.dataType === 'text' && file.content) {
                 userParts.push({ text: `\n\n--- محتوى الملف: ${file.name} ---\n${file.content}\n--- نهاية الملف ---` });
-            } else if (file.fileUrl) {
-                // التعامل مع الملفات المرفوعة إلى Cloudinary
-                const isImage = file.type === 'image' || (file.mimeType && file.mimeType.startsWith('image/'));
-                if (isImage) {
-                    userParts.push({ text: `\n\n--- صورة مرفقة: ${file.name} ---\nرابط الصورة: ${file.fileUrl}\nيرجى تحليل الصورة من الرابط المرفق.\n--- نهاية المرفق ---` });
-                } else {
-                    userParts.push({ text: `\n\n--- ملف مرفق: ${file.name} ---\nنوع الملف: ${file.type || file.mimeType || 'غير معروف'}\nحجم الملف: ${formatBytes(file.size)}\nرابط الملف: ${file.fileUrl}\n--- نهاية المرفق ---` });
-                }
-            }
+            } 
+            // ✨ إزالة الجزء القديم الذي كان يتعامل مع file.fileUrl كـ text
+            // هذا الجزء لم يعد ضرورياً لأننا نستخدم fileData للصور
+            // أما الملفات النصية، فنحن نقرأ المحتوى مباشرة (file.content)
+            // إذا كان هناك أي نوع ملف آخر (binary) لم تتم معالجته، يمكن إهماله حالياً أو التعامل معه لاحقاً.
         });
     }
     
+    // هذا الشرط يضيف "حلل المرفقات:" فقط إذا كانت هناك مرفقات وليس هناك نص أساسي
+    // مع التغييرات، قد لا يكون ضرورياً جداً إذا كان النموذج ذكياً بما يكفي
+    // ولكن لا بأس من إبقائه كطبقة أمان
     if (userParts.length > 0 && userParts.every(p => !p.text)) {
         userParts.unshift({ text: "حلل المرفقات:" });
     }
     return userParts;
 }
+
 
 // إضافة دالة مساعدة لتنسيق حجم الملف
 function formatBytes(bytes, decimals = 2) {
