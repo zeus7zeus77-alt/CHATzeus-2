@@ -106,19 +106,24 @@ function verifyToken(req, res, next) {
 const storage = multer.memoryStorage(); // ✨ تم التغيير هنا ✨
 
 // فلترة بسيطة للأنواع المسموحة (اختياري — عدّل حسب حاجتك)
+// أضف HEIC/HEIF وأنواع شائعة أخرى (PDF/SVG)، أو ألغِ الفلترة تمامًا إن أردت
 const allowedMime = new Set([
   'text/plain','text/markdown','text/csv','application/json','application/xml',
   'text/html','text/css','application/javascript',
-  'image/jpeg','image/png','image/gif','image/webp','image/bmp'
+  'image/jpeg','image/png','image/gif','image/webp','image/bmp',
+  'image/heic','image/heif','image/heif-sequence','image/svg+xml',
+  'application/pdf'
 ]);
 
 const upload = multer({
   storage,
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
   fileFilter: (req, file, cb) => {
-    // اسمح بكل شيء أو قيّد بأنواع محددة
-    if (!allowedMime.size || allowedMime.has(file.mimetype)) return cb(null, true);
-    cb(new Error('نوع الملف غير مسموح'));
+    // اسمح إن كان النوع معلوم أو يبدأ بـ image/
+    if (allowedMime.has(file.mimetype) || (file.mimetype && file.mimetype.startsWith('image/'))) {
+      return cb(null, true);
+    }
+    cb(new Error('نوع الملف غير مسموح: ' + file.mimetype));
   }
 });
 
@@ -155,11 +160,14 @@ app.post('/api/uploads', verifyToken, upload.array('files', 10), async (req, res
                 const b64 = Buffer.from(file.buffer).toString('base64');
                 const dataUri = `data:${file.mimetype};base64,${b64}`;
                 
-                const uploadResult = await cloudinary.uploader.upload(dataUri, {
-                    folder: 'chatzeus_uploads', // اختياري: تحديد مجلد في Cloudinary
-                    public_id: fileInfo.filename, // استخدام اسم الملف الذي تم إنشاؤه كـ public_id
-                    resource_type: 'image'
-                });
+                const isHeic = /image\/heic|image\/heif/i.test(file.mimetype);
+const uploadResult = await cloudinary.uploader.upload(dataUri, {
+  folder: 'chatzeus_uploads',
+  public_id: fileInfo.filename,
+  // اجعل Cloudinary يتصرف تلقائيًا، وحوّل HEIC إلى JPG ليكون مفهومًا للنماذج والمتصفحات
+  resource_type: 'auto',
+  format: isHeic ? 'jpg' : undefined
+});
                 fileInfo.fileUrl = uploadResult.secure_url;
                 console.log(`✅ Uploaded image to Cloudinary: ${fileInfo.fileUrl}`);
             } catch (uploadError) {
@@ -184,6 +192,15 @@ app.post('/api/uploads', verifyToken, upload.array('files', 10), async (req, res
     console.error('Upload error:', e);
     return res.status(500).json({ message: 'فشل رفع الملفات', error: e.message });
   }
+});
+
+// معالج أخطاء multer ليعيد 400 بدلاً من 500 مع رسالة واضحة
+app.use((err, req, res, next) => {
+  if (err && err.message && /multer/i.test(err.stack || '') || /نوع الملف غير مسموح/i.test(err.message)) {
+    console.error('Multer error:', err.message);
+    return res.status(400).json({ message: err.message });
+  }
+  next(err);
 });
 
 app.get('/auth/google', (req, res) => {
