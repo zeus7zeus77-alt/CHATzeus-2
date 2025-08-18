@@ -447,43 +447,82 @@ app.get('/api/data', verifyToken, async (req, res) => {
     }
 });
 
+// ====== دالة تطبيع الرسائل قبل الحفظ ======
+function sanitizeChatForSave(chatData) {
+  const out = { ...chatData };
+
+  // طبّع الرسائل فقط إن كانت مصفوفة
+  if (Array.isArray(out.messages)) {
+    out.messages = out.messages.map(m => {
+      const msg = { ...m };
+
+      // 1) احرص أن المحتوى نص
+      if (msg.content != null && typeof msg.content !== 'string') {
+        msg.content = String(msg.content);
+      }
+
+      // 2) حوّل attachments إلى [string]
+      if (Array.isArray(msg.attachments)) {
+        msg.attachments = msg.attachments
+          .map(a => {
+            if (typeof a === 'string') return a.trim();
+            if (a && typeof a === 'object') {
+              return a.fileUrl || a.fileId || a.url || a.name || '';
+            }
+            return '';
+          })
+          .filter(Boolean); // أزل الفارغ
+      } else {
+        msg.attachments = []; // المخطط يتوقع مصفوفة
+      }
+
+      return msg;
+    });
+  }
+
+  return out;
+}
+
 // حفظ أو تحديث محادثة
 app.post('/api/chats', verifyToken, async (req, res) => {
-    try {
-        const userIdString = req.user.id;
-        // ✨ 1. التحقق من صلاحية معرّف المستخدم ✨
-        if (!mongoose.Types.ObjectId.isValid(userIdString)) {
-            return res.status(400).json({ message: 'Invalid User ID format.' });
-        }
-        const userId = new mongoose.Types.ObjectId(userIdString);
-        const chatData = req.body;
-
-// إذا كانت المحادثة موجودة (لديها ID صالح)
-if (chatData._id && mongoose.Types.ObjectId.isValid(chatData._id)) {
-  const { _id, ...rest } = chatData;         // ❗️لا تمرّر _id في التحديث
-  const updatedChat = await Chat.findOneAndUpdate(
-    { _id: new mongoose.Types.ObjectId(_id), user: userId },
-    { $set: { ...rest, user: userId } },     // استخدم $set لتحديث جزئي آمن
-    { new: true, runValidators: true }
-  );
-  if (!updatedChat) {
-    return res.status(404).json({ message: "Chat not found or user not authorized" });
-  }
-  return res.json(updatedChat);
-} else {
-  delete chatData._id; 
-  const newChat = new Chat({
-    ...chatData,
-    user: userId,
-    mode: chatData.mode || 'chat'
-  });
-  await newChat.save();
-  return res.status(201).json(newChat);
-}
-    } catch (error) {
-        console.error('Error saving chat:', error);
-        res.status(500).json({ message: 'Failed to save chat' });
+  try {
+    const userIdString = req.user.id;
+    if (!mongoose.Types.ObjectId.isValid(userIdString)) {
+      return res.status(400).json({ message: 'Invalid User ID format.' });
     }
+    const userId = new mongoose.Types.ObjectId(userIdString);
+
+    // ✅ طهّر الداتا قبل أي حفظ/تحديث
+    const chatDataRaw = req.body;
+    const chatData = sanitizeChatForSave(chatDataRaw);
+
+    // إذا كانت المحادثة موجودة (لديها ID صالح)
+    if (chatData._id && mongoose.Types.ObjectId.isValid(chatData._id)) {
+      const { _id, ...rest } = chatData;         // ❗️لا تمرّر _id في التحديث
+      const updatedChat = await Chat.findOneAndUpdate(
+        { _id: new mongoose.Types.ObjectId(_id), user: userId },
+        { $set: { ...rest, user: userId } },     // الآن rest.messages.attachments هي [string]
+        { new: true, runValidators: true }
+      );
+      if (!updatedChat) {
+        return res.status(404).json({ message: "Chat not found or user not authorized" });
+      }
+      return res.json(updatedChat);
+    } else {
+      // إنشاء جديد
+      delete chatData._id;
+      const newChat = new Chat({
+        ...chatData,
+        user: userId,
+        mode: chatData.mode || 'chat'
+      });
+      await newChat.save();
+      return res.status(201).json(newChat);
+    }
+  } catch (error) {
+    console.error('Error saving chat:', error);
+    res.status(500).json({ message: 'Failed to save chat' });
+  }
 });
 
 app.put('/api/settings', verifyToken, async (req, res) => {
