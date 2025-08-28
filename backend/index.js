@@ -497,23 +497,17 @@ app.post('/api/chats', verifyToken, async (req, res) => {
     const chatData = sanitizeChatForSave(chatDataRaw);
 
     // إذا كانت المحادثة موجودة (لديها ID صالح)
-        if (chatData._id && mongoose.Types.ObjectId.isValid(chatData._id)) {
-      const { _id, ...rest } = chatData;
+    if (chatData._id && mongoose.Types.ObjectId.isValid(chatData._id)) {
+      const { _id, ...rest } = chatData;         // ❗️لا تمرّر _id في التحديث
       const updatedChat = await Chat.findOneAndUpdate(
         { _id: new mongoose.Types.ObjectId(_id), user: userId },
-        { $set: { ...rest, user: userId } },
+        { $set: { ...rest, user: userId } },     // الآن rest.messages.attachments هي [string]
         { new: true, runValidators: true }
       );
       if (!updatedChat) {
         return res.status(404).json({ message: "Chat not found or user not authorized" });
       }
-      
-      // ✅ الحل: تحويل _id إلى id قبل الإرسال
-      const updatedChatObject = updatedChat.toObject();
-      updatedChatObject.id = updatedChatObject._id;
-      delete updatedChatObject._id;
-      return res.json(updatedChatObject);
-
+      return res.json(updatedChat);
     } else {
       // إنشاء جديد
       delete chatData._id;
@@ -523,19 +517,13 @@ app.post('/api/chats', verifyToken, async (req, res) => {
         mode: chatData.mode || 'chat'
       });
       await newChat.save();
-      
-      // ✅ الحل: تحويل _id إلى id قبل الإرسال
-      const newChatObject = newChat.toObject();
-      newChatObject.id = newChatObject._id;
-      delete newChatObject._id;
-      return res.status(201).json(newChatObject);
+      return res.status(201).json(newChat);
     }
   } catch (error) {
     console.error('Error saving chat:', error);
     res.status(500).json({ message: 'Failed to save chat' });
   }
 });
-
 
 app.put('/api/settings', verifyToken, async (req, res) => {
     try {
@@ -625,82 +613,6 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, '..', 'frontend', 'index.html'));
 });
 
-// أضف هذا المسار في ملف index.js بعد المسارات الموجودة (حوالي السطر 200)
-
-// مسار تسجيل الدخول عبر Google للتطبيقات المحمولة
-app.post('/auth/mobile/google', async (req, res) => {
-try {
-const { idToken } = req.body;
-
-    if (!idToken) {
-        return res.status(400).json({ message: 'ID token is required' });
-    }
-
-    // التحقق من صحة الـ ID Token مع Google
-    const ticket = await oauth2Client.verifyIdToken({
-        idToken: idToken,
-        audience: process.env.GOOGLE_CLIENT_ID
-    });
-    
-    const payload = ticket.getPayload();
-    const googleId = payload['sub'];
-    const email = payload['email'];
-    const name = payload['name'];
-    const picture = payload['picture'];
-
-    // البحث عن المستخدم أو إنشاء مستخدم جديد
-    let user = await User.findOne({ googleId: googleId });
-
-    if (!user) {
-        // مستخدم جديد
-        user = new User({
-            googleId: googleId,
-            email: email,
-            name: name,
-            picture: picture,
-        });
-        await user.save();
-
-        // إنشاء إعدادات افتراضية للمستخدم الجديد
-        const newSettings = new Settings({ user: user._id });
-        await newSettings.save();
-        console.log(`✨ New mobile user created: ${user.email}`);
-    } else {
-        console.log(`👋 Welcome back mobile user: ${user.email}`);
-    }
-
-    // إنشاء حمولة التوكن
-    const tokenPayload = {
-        id: user._id,
-        googleId: user.googleId,
-        name: user.name,
-        email: user.email,
-        picture: user.picture,
-    };
-
-    // توقيع التوكن
-    const token = jwt.sign(tokenPayload, process.env.JWT_SECRET, { expiresIn: '7d' });
-
-    // إرجاع التوكن ومعلومات المستخدم
-    res.json({
-        token: token,
-        user: {
-            id: user._id,
-            name: user.name,
-            email: user.email,
-            picture: user.picture
-        }
-    });
-
-} catch (error) {
-    console.error('Mobile Google authentication error:', error);
-    res.status(500).json({ 
-        message: 'Authentication failed', 
-        error: error.message 
-    });
-}
-
-});
 
 // =================================================================
 // 6. دوال معالجة الدردشة (تبقى كما هي)
