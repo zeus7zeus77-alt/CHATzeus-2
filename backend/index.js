@@ -1193,15 +1193,35 @@ function streamOpenAICompatibleAPI(options, body, res) {
     });
 }
 
-// ✨✨✨ معالج الأخطاء العام (Global Error Handler) ✨✨✨
-app.use((err, req, res, next) => {
-    console.error('[GLOBAL ERROR HANDLER]:', err.stack);
-    res.status(500).json({
-        message: 'حدث خطأ غير متوقع في الخادم.',
-        error: err.message 
-    });
+
+
+// =================================================================
+// ✨✨✨ أضف هذا الكود الجديد هنا ✨✨✨
+// =================================================================
+
+// 1. معالج خطأ 404 (Not Found) لمسارات API فقط
+// هذا يلتقط أي طلب لمسار يبدأ بـ /api/ ولم يجد له معالجًا مطابقًا.
+app.use('/api/', (req, res, next) => {
+    res.status(404).json({ message: `API endpoint not found: ${req.method} ${req.originalUrl}` });
 });
 
+
+// =================================================================
+// ✨✨✨ معالج الأخطاء العام (موجود لديك بالفعل) يأتي بعده مباشرة ✨✨✨
+// =================================================================
+app.use((err, req, res, next) => {
+    console.error('[GLOBAL ERROR HANDLER]:', err.stack);
+
+    // ✨ تحسين بسيط: تحقق مما إذا كانت الهيدرات قد أُرسلت بالفعل
+    if (res.headersSent) {
+        return next(err);
+    }
+
+    res.status(err.status || 500).json({
+        message: err.message || 'حدث خطأ غير متوقع في الخادم.',
+        error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message 
+    });
+});
 
 // =================================================================
 // ✨ الاتصال بقاعدة البيانات
