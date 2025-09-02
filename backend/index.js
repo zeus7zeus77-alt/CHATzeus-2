@@ -1,5 +1,5 @@
 // =================================================================
-// 1. التحميل اليدوي لمتغيرات البيئة (الحل الجذري)
+// 1. التحميل اليدوي لمتغيرات البيئة (الحل الجذري)
 // =================================================================
 const fs = require('fs');
 const path = require('path');
@@ -14,7 +14,7 @@ try {
     });
     console.log('✅ Environment variables loaded manually.');
 } catch (error) {
-    // ✨ لا توقف الخادم، فقط اعرض تحذيرًا بأنه سيستخدم متغيرات البيئة من المنصة ✨
+    // ✨ لا توقف الخادم، فقط اعرض تحذيرًا بأنه سيستخدم متغيرات البيئة من المنصة ✨
     console.warn('⚠️  Could not find .env file. Using platform environment variables instead.');
 }
 
@@ -38,19 +38,19 @@ const { v4: uuidv4 } = require('uuid');
 const cloudinary = require('cloudinary').v2;
 
 // =================================================================
-// 3. إعداد تطبيق Express والخادم
+// 3. إعداد تطبيق Express والخادم
 // =================================================================
 const app = express();
 const server = http.createServer(app );
 
-// ✨ إعدادات CORS النهائية والمحصّنة ✨
+// ✨ إعدادات CORS النهائية والمحصّنة ✨
 app.use(cors({
-  origin: 'https://chatzeus.vercel.app', // السماح لواجهتك الأمامية فقط
-  credentials: true, // السماح بإرسال الكوكيز والتوكن
+  origin: 'https://chatzeus.vercel.app', // السماح لواجهتك الأمامية فقط
+  credentials: true, // السماح بإرسال الكوكيز والتوكن
   allowedHeaders: ['Content-Type', 'Authorization'] // السماح بالهيدرات الضرورية
 } ));
 
-// معالجة طلبات OPTIONS تلقائيًا (مهم لـ pre-flight)
+// معالجة طلبات OPTIONS تلقائيًا (مهم لـ pre-flight)
 app.options('*', cors({
   origin: 'https://chatzeus.vercel.app',
   credentials: true,
@@ -65,7 +65,7 @@ const oauth2Client = new OAuth2Client(
 
 app.use(express.json({ limit: '50mb' }));
 
-// ✨ تهيئة Cloudinary ✨
+// ✨ تهيئة Cloudinary ✨
 
 cloudinary.config({
     cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -95,18 +95,18 @@ function verifyToken(req, res, next) {
     });
 }
 
-// ✨ إزالة تهيئة مجلد الرفع المحلي (لم نعد نستخدمه) ✨
+// ✨ إزالة تهيئة مجلد الرفع المحلي (لم نعد نستخدمه) ✨
 // const uploadsDir = path.join(__dirname, 'uploads');
 // if (!fs.existsSync(uploadsDir)) {
 //   fs.mkdirSync(uploadsDir, { recursive: true });
 //   console.log('✅ Created uploads directory at:', uploadsDir);
 // }
 
-// إعداد التخزين لـ Multer - الآن في الذاكرة
+// إعداد التخزين لـ Multer - الآن في الذاكرة
 const storage = multer.memoryStorage(); // ✨ تم التغيير هنا ✨
 
-// فلترة بسيطة للأنواع المسموحة (اختياري — عدّل حسب حاجتك)
-// أضف HEIC/HEIF وأنواع شائعة أخرى (PDF/SVG)، أو ألغِ الفلترة تمامًا إن أردت
+// فلترة بسيطة للأنواع المسموحة (اختياري — عدّل حسب حاجتك)
+// أضف HEIC/HEIF وأنواع شائعة أخرى (PDF/SVG)، أو ألغِ الفلترة تمامًا إن أردت
 const allowedMime = new Set([
   'text/plain','text/markdown','text/csv','application/json','application/xml',
   'text/html','text/css','application/javascript',
@@ -119,7 +119,7 @@ const upload = multer({
   storage,
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
   fileFilter: (req, file, cb) => {
-    // اسمح إن كان النوع معلوم أو يبدأ بـ image/
+    // اسمح إن كان النوع معلوم أو يبدأ بـ image/
     if (allowedMime.has(file.mimetype) || (file.mimetype && file.mimetype.startsWith('image/'))) {
       return cb(null, true);
     }
@@ -127,7 +127,7 @@ const upload = multer({
   }
 });
 
-// ✨ إزالة خدمة الملفات المرفوعة بشكل ثابت (لم نعد نخدمها محليًا) ✨
+// ✨ إزالة خدمة الملفات المرفوعة بشكل ثابت (لم نعد نخدمها محليًا) ✨
 // app.use('/uploads', express.static(uploadsDir));
 
 
@@ -147,16 +147,16 @@ app.post('/api/uploads', verifyToken, upload.array('files', 10), async (req, res
             filename: uuidv4(), // Generate a unique ID for internal tracking
             size: file.size,
             mimeType: file.mimetype,
-            fileUrl: null, // هذا سيكون رابط Cloudinary أو placeholder
+            fileUrl: null, // هذا سيكون رابط Cloudinary أو placeholder
             dataType: null, // 'image', 'text', 'binary'
             content: null // للملفات النصية، تخزين المحتوى هنا
         };
 
-        // التحقق مما إذا كانت صورة
+        // التحقق مما إذا كانت صورة
         if (file.mimetype.startsWith('image/')) {
             fileInfo.dataType = 'image';
             try {
-                // تحويل Buffer إلى Base64 Data URI للرفع إلى Cloudinary
+                // تحويل Buffer إلى Base64 Data URI للرفع إلى Cloudinary
                 const b64 = Buffer.from(file.buffer).toString('base64');
                 const dataUri = `data:${file.mimetype};base64,${b64}`;
                 
@@ -164,7 +164,7 @@ app.post('/api/uploads', verifyToken, upload.array('files', 10), async (req, res
 const uploadResult = await cloudinary.uploader.upload(dataUri, {
   folder: 'chatzeus_uploads',
   public_id: fileInfo.filename,
-  // اجعل Cloudinary يتصرف تلقائيًا، وحوّل HEIC إلى JPG ليكون مفهومًا للنماذج والمتصفحات
+  // اجعل Cloudinary يتصرف تلقائيًا، وحوّل HEIC إلى JPG ليكون مفهومًا للنماذج والمتصفحات
   resource_type: 'auto',
   format: isHeic ? 'jpg' : undefined
 });
@@ -172,8 +172,8 @@ const uploadResult = await cloudinary.uploader.upload(dataUri, {
                 console.log(`✅ Uploaded image to Cloudinary: ${fileInfo.fileUrl}`);
             } catch (uploadError) {
                 console.error('Cloudinary upload failed for image:', file.originalname, uploadError);
-                fileInfo.fileUrl = null; // الإشارة إلى الفشل
-                // يمكن هنا رمي خطأ أو الاستمرار وتسجيله
+                fileInfo.fileUrl = null; // الإشارة إلى الفشل
+                // يمكن هنا رمي خطأ أو الاستمرار وتسجيله
             }
         } else if (file.mimetype.startsWith('text/') || file.mimetype.includes('json') || file.mimetype.includes('xml') || file.mimetype.includes('javascript') || file.mimetype.includes('csv') || file.mimetype.includes('markdown')) {
             fileInfo.dataType = 'text';
@@ -182,7 +182,7 @@ const uploadResult = await cloudinary.uploader.upload(dataUri, {
             // لا يوجد رفع خارجي للملفات النصية/الكود في الوقت الحالي
         } else {
             fileInfo.dataType = 'binary';
-            // لا يوجد محتوى أو رفع خارجي للملفات الثنائية الأخرى في الوقت الحالي
+            // لا يوجد محتوى أو رفع خارجي للملفات الثنائية الأخرى في الوقت الحالي
         }
         uploadedFilesInfo.push(fileInfo);
     }
@@ -194,7 +194,7 @@ const uploadResult = await cloudinary.uploader.upload(dataUri, {
   }
 });
 
-// معالج أخطاء multer ليعيد 400 بدلاً من 500 مع رسالة واضحة
+// معالج أخطاء multer ليعيد 400 بدلاً من 500 مع رسالة واضحة
 app.use((err, req, res, next) => {
   if (err && err.message && /multer/i.test(err.stack || '') || /نوع الملف غير مسموح/i.test(err.message)) {
     console.error('Multer error:', err.message);
@@ -219,7 +219,7 @@ app.get('/auth/google/callback', async (req, res) => {
         const userInfoResponse = await oauth2Client.request({ url: 'https://www.googleapis.com/oauth2/v3/userinfo' } );
         const userInfo = userInfoResponse.data;
 
-        // ابحث عن المستخدم في قاعدة البيانات أو أنشئ مستخدمًا جديدًا
+        // ابحث عن المستخدم في قاعدة البيانات أو أنشئ مستخدمًا جديدًا
         let user = await User.findOne({ googleId: userInfo.sub });
 
         if (!user) {
@@ -232,7 +232,7 @@ app.get('/auth/google/callback', async (req, res) => {
             });
             await user.save();
 
-            // إنشاء إعدادات افتراضية للمستخدم الجديد
+            // إنشاء إعدادات افتراضية للمستخدم الجديد
             const newSettings = new Settings({ user: user._id });
             await newSettings.save();
             console.log(`✨ New user created and saved: ${user.email}`);
@@ -240,7 +240,7 @@ app.get('/auth/google/callback', async (req, res) => {
             console.log(`👋 Welcome back, user: ${user.email}`);
         }
 
-        // إنشاء حمولة التوكن مع معرّف قاعدة البيانات
+        // إنشاء حمولة التوكن مع معرّف قاعدة البيانات
         const payload = {
             id: user._id,
             googleId: user.googleId,
@@ -252,7 +252,7 @@ app.get('/auth/google/callback', async (req, res) => {
         // توقيع التوكن
         const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
 
-        // إعادة التوجيه إلى الواجهة الأمامية مع التوكن
+        // إعادة التوجيه إلى الواجهة الأمامية مع التوكن
         res.redirect(`https://chatzeus.vercel.app/?token=${token}` );
 
     } catch (error) {
@@ -262,7 +262,7 @@ app.get('/auth/google/callback', async (req, res) => {
 });
 
 app.get('/api/user', verifyToken, (req, res) => {
-    // إذا وصل الطلب إلى هنا، فالـ middleware قد تحقق من التوكن بنجاح
+    // إذا وصل الطلب إلى هنا، فالـ middleware قد تحقق من التوكن بنجاح
     // ومعلومات المستخدم موجودة في req.user
     res.json({ loggedIn: true, user: req.user });
 });
@@ -281,12 +281,12 @@ app.post('/api/team_chat', verifyToken, async (req, res) => {
   });
 
   try {
-    // قراءة البيانات من chatHistory أو history
+    // قراءة البيانات من chatHistory أو history
     const { chatHistory, history, settings } = req.body || {};
     const messages = chatHistory || history || [];
     
     if (!settings || !settings.team || !Array.isArray(settings.team.members) || settings.team.members.length === 0) {
-      res.write('❌ لا يوجد أعضاء محددون في وضع الفريق.\n');
+      res.write('❌ لا يوجد أعضاء محددون في وضع الفريق.\n');
       return res.end();
     }
 
@@ -297,7 +297,7 @@ app.post('/api/team_chat', verifyToken, async (req, res) => {
     teamThread.push({
       role: 'system',
       content:
-`أنت منسّق لفريق خبراء حقيقي. القواعد:
+`أنت منسّق لفريق خبراء حقيقي. القواعد:
 - النقاش تتابعي صارم: عضو واحد يتحدث ثم يتوقف ليرى التالي ردّه.
 - كل عضو يرى كامل خيط الفريق حتى لحظته.
 - احترم شخصية ودور كل عضو.
@@ -306,7 +306,7 @@ app.post('/api/team_chat', verifyToken, async (req, res) => {
 
     teamThread.push({
       role: 'user',
-      content: `مهمة المستخدم:\n${lastUser}\n\nملخص الحوار الأخير:\n${JSON.stringify(shortContext)}`
+      content: `مهمة المستخدم:\n${lastUser}\n\nملخص الحوار الأخير:\n${JSON.stringify(shortContext)}`
     });
 
     const coord = settings.team.coordinator || {};
@@ -333,7 +333,7 @@ await streamOneModel(
 res.write(`⟦AGENT:END⟧`);
     teamThread.push({ role: 'assistant', content: '(تم بث خطة المنسّق)' });
 
-    // 3) الأعضاء
+    // 3) الأعضاء
     for (const mem of settings.team.members) {
       const sysPersona = (mem.persona || mem.role)
         ? `شخصية العضو: ${mem.name || 'عضو'} — ${mem.role || ''}\n${mem.persona || ''}`
@@ -370,7 +370,7 @@ await streamOneModel(
     ...teamThread,
     {
       role: 'system',
-      content: `المطلوب: خلاصة نهائية من ${coordName} (${coordRole})\nالتعليمات: لخّص مخرجات الفريق في نقاط تنفيذية موجزة، مع أي كود/أوامر لازمة.`
+      content: `المطلوب: خلاصة نهائية من ${coordName} (${coordRole})\nالتعليمات: لخّص مخرجات الفريق في نقاط تنفيذية موجزة، مع أي كود/أوامر لازمة.`
     }
   ],
   settings,
@@ -381,7 +381,7 @@ res.write(`⟦AGENT:END⟧`);
     res.end();
   } catch (e) {
     console.error('team_chat (live stream) error:', e);
-    try { res.write(`\n❌ خطأ: ${e.message || 'Team mode failed'}`); } catch(_) {}
+    try { res.write(`\n❌ خطأ: ${e.message || 'Team mode failed'}`); } catch(_) {}
     res.end();
   }
 });
@@ -399,12 +399,12 @@ app.get('/api/data', verifyToken, async (req, res) => {
 
         let user = await User.findById(req.user.id);
 
-        // 2. خطة احتياطية: إذا لم يتم العثور على المستخدم بالـ ID، جرب googleId
+        // 2. خطة احتياطية: إذا لم يتم العثور على المستخدم بالـ ID، جرب googleId
         if (!user && req.user.googleId) {
             console.warn(`User not found by ID ${req.user.id}, trying googleId...`);
             user = await User.findOne({ googleId: req.user.googleId });
 
-            // 3. إذا لم يكن موجودًا على الإطلاق، أنشئه الآن (هذا يمنع أي فشل)
+            // 3. إذا لم يكن موجودًا على الإطلاق، أنشئه الآن (هذا يمنع أي فشل)
             if (!user) {
                 console.warn(`User not found by googleId either. Creating a new user record now.`);
                 user = await User.create({
@@ -417,24 +417,24 @@ app.get('/api/data', verifyToken, async (req, res) => {
             }
         }
         
-        // إذا لم يتم العثور على المستخدم بعد كل المحاولات، فهناك مشكلة حقيقية
+        // إذا لم يتم العثور على المستخدم بعد كل المحاولات، فهناك مشكلة حقيقية
         if (!user) {
              return res.status(404).json({ message: 'User could not be found or created.' });
         }
 
-        // 4. الآن بعد التأكد من وجود المستخدم، اجلب بياناته
+        // 4. الآن بعد التأكد من وجود المستخدم، اجلب بياناته
                 const filter = { user: user._id };
         if (req.query.mode) filter.mode = req.query.mode; // 🚩 فلترة اختيارية حسب الوضع
 
         const chats = await Chat.find(filter).sort({ order: -1 });
         let settings = await Settings.findOne({ user: user._id });
 
-        // 5. إذا لم تكن لديه إعدادات، أنشئها
+        // 5. إذا لم تكن لديه إعدادات، أنشئها
         if (!settings) {
             settings = await new Settings({ user: user._id }).save();
         }
 
-        // 6. أرجع دائمًا ردًا ناجحًا
+        // 6. أرجع دائمًا ردًا ناجحًا
         return res.json({
             settings,
             chats,
@@ -447,21 +447,21 @@ app.get('/api/data', verifyToken, async (req, res) => {
     }
 });
 
-// ====== دالة تطبيع الرسائل قبل الحفظ ======
+// ====== دالة تطبيع الرسائل قبل الحفظ ======
 function sanitizeChatForSave(chatData) {
   const out = { ...chatData };
 
-  // طبّع الرسائل فقط إن كانت مصفوفة
+  // طبّع الرسائل فقط إن كانت مصفوفة
   if (Array.isArray(out.messages)) {
     out.messages = out.messages.map(m => {
       const msg = { ...m };
 
-      // 1) احرص أن المحتوى نص
+      // 1) احرص أن المحتوى نص
       if (msg.content != null && typeof msg.content !== 'string') {
         msg.content = String(msg.content);
       }
 
-      // 2) حوّل attachments إلى [string]
+      // 2) حوّل attachments إلى [string]
       if (Array.isArray(msg.attachments)) {
         msg.attachments = msg.attachments
           .map(a => {
@@ -471,7 +471,7 @@ function sanitizeChatForSave(chatData) {
             }
             return '';
           })
-          .filter(Boolean); // أزل الفارغ
+          .filter(Boolean); // أزل الفارغ
       } else {
         msg.attachments = []; // المخطط يتوقع مصفوفة
       }
@@ -483,7 +483,7 @@ function sanitizeChatForSave(chatData) {
   return out;
 }
 
-// حفظ أو تحديث محادثة
+// حفظ أو تحديث محادثة
 app.post('/api/chats', verifyToken, async (req, res) => {
   try {
     const userIdString = req.user.id;
@@ -492,16 +492,16 @@ app.post('/api/chats', verifyToken, async (req, res) => {
     }
     const userId = new mongoose.Types.ObjectId(userIdString);
 
-    // ✅ طهّر الداتا قبل أي حفظ/تحديث
+    // ✅ طهّر الداتا قبل أي حفظ/تحديث
     const chatDataRaw = req.body;
     const chatData = sanitizeChatForSave(chatDataRaw);
 
-    // إذا كانت المحادثة موجودة (لديها ID صالح)
+    // إذا كانت المحادثة موجودة (لديها ID صالح)
     if (chatData._id && mongoose.Types.ObjectId.isValid(chatData._id)) {
       const { _id, ...rest } = chatData;         // ❗️لا تمرّر _id في التحديث
       const updatedChat = await Chat.findOneAndUpdate(
         { _id: new mongoose.Types.ObjectId(_id), user: userId },
-        { $set: { ...rest, user: userId } },     // الآن rest.messages.attachments هي [string]
+        { $set: { ...rest, user: userId } },     // الآن rest.messages.attachments هي [string]
         { new: true, runValidators: true }
       );
       if (!updatedChat) {
@@ -509,7 +509,7 @@ app.post('/api/chats', verifyToken, async (req, res) => {
       }
       return res.json(updatedChat);
     } else {
-      // إنشاء جديد
+      // إنشاء جديد
       delete chatData._id;
       const newChat = new Chat({
         ...chatData,
@@ -533,7 +533,7 @@ app.put('/api/settings', verifyToken, async (req, res) => {
         const userId = new mongoose.Types.ObjectId(req.user.id);
         const receivedSettings = req.body;
 
-// ✨✨✨ الإصلاح الحاسم: انتقاء الحقول المعروفة فقط ✨✨✨
+// ✨✨✨ الإصلاح الحاسم: انتقاء الحقول المعروفة فقط ✨✨✨
 const allowedUpdates = {
     provider: receivedSettings.provider,
     model: receivedSettings.model,
@@ -546,17 +546,17 @@ const allowedUpdates = {
     openrouterApiKeys: receivedSettings.openrouterApiKeys,
     customProviders: receivedSettings.customProviders,
     customModels: receivedSettings.customModels,
-    // ✨ إعدادات البحث الجديدة ✨
+    // ✨ إعدادات البحث الجديدة ✨
     enableWebBrowsing: receivedSettings.enableWebBrowsing,
     browsingMode: receivedSettings.browsingMode,
     showSources: receivedSettings.showSources,
     dynamicThreshold: receivedSettings.dynamicThreshold,
-    // 🚩 إعدادات وضع الفريق
+    // 🚩 إعدادات وضع الفريق
     activeMode: receivedSettings.activeMode,
     team: receivedSettings.team
 };
 
-        // إزالة أي حقول غير معرفة (undefined) لتجنب المشاكل
+        // إزالة أي حقول غير معرفة (undefined) لتجنب المشاكل
         Object.keys(allowedUpdates).forEach(key => allowedUpdates[key] === undefined && delete allowedUpdates[key]);
 
         const updatedSettings = await Settings.findOneAndUpdate(
@@ -569,7 +569,7 @@ const allowedUpdates = {
 
     } catch (error) {
         console.error('Error updating settings:', error);
-        // إرسال رسالة خطأ أكثر تفصيلاً للمساعدة في التشخيص
+        // إرسال رسالة خطأ أكثر تفصيلاً للمساعدة في التشخيص
         res.status(500).json({ message: 'Failed to update settings.', error: error.message });
     }
 });
@@ -580,7 +580,7 @@ app.delete('/api/chats/:chatId', verifyToken, async (req, res) => {
         const userIdString = req.user.id;
         const { chatId } = req.params;
 
-        // ✨ 1. التحقق من صلاحية كلا المعرّفين قبل أي شيء ✨
+        // ✨ 1. التحقق من صلاحية كلا المعرّفين قبل أي شيء ✨
         if (!mongoose.Types.ObjectId.isValid(userIdString) || !mongoose.Types.ObjectId.isValid(chatId)) {
             return res.status(400).json({ message: 'Invalid ID format.' });
         }
@@ -592,7 +592,7 @@ app.delete('/api/chats/:chatId', verifyToken, async (req, res) => {
         });
 
         if (!result) {
-            // هذا يعني أن المحادثة غير موجودة أو لا تخص هذا المستخدم
+            // هذا يعني أن المحادثة غير موجودة أو لا تخص هذا المستخدم
             return res.status(404).json({ message: 'Chat not found or user not authorized' });
         }
 
@@ -608,7 +608,7 @@ app.delete('/api/chats/:chatId', verifyToken, async (req, res) => {
 // =================================================================
 app.use(express.static(path.join(__dirname, '..', 'frontend')));
 
-// مسار للصفحة الرئيسية فقط (بدلاً من * التي تسبب تضارب)
+// مسار للصفحة الرئيسية فقط (بدلاً من * التي تسبب تضارب)
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, '..', 'frontend', 'index.html'));
 });
@@ -628,10 +628,11 @@ const keyManager = {
         openrouter: 0
     },
 
-    tryKeys: async function(provider, strategy, customKeys, action) {
+        tryKeys: async function(provider, strategy, customKeys, action) {
     const keyPool = (customKeys && customKeys.length > 0) ? customKeys : this.keys[provider] || [];
     if (keyPool.length === 0) {
-        throw new Error(`No API keys available for provider: ${provider}`);
+        const providerName = provider.startsWith('custom_') ? 'المزود المخصص' : provider;
+        throw new Error(`لا توجد مفاتيح API متاحة للمزود: ${providerName}. يرجى إضافة مفاتيح API في الإعدادات.`);
     }
 
     let tryCount = 0; // ✨ تعريف tryCount هنا
@@ -653,7 +654,7 @@ const keyManager = {
 
             if (retriable && tryCount < keyPool.length - 1) {
                 tryCount++;
-                continue; // ✅ الآن في مكان صحيح داخل الحلقة
+                continue; // ✅ الآن في مكان صحيح داخل الحلقة
             }
 
             throw error;
@@ -665,14 +666,14 @@ const keyManager = {
 async function handleChatRequest(req, res) {
     try {
         const payload = req.body;
-        // ✨ التحقق من وجود الإعدادات والمزود قبل أي شيء آخر ✨
+        // ✨ التحقق من وجود الإعدادات والمزود قبل أي شيء آخر ✨
         if (!payload.settings || !payload.settings.provider) {
-            // إذا لم يكن هناك مزود، أرسل خطأ واضحًا بدلاً من الانهيار
+            // إذا لم يكن هناك مزود، أرسل خطأ واضحًا بدلاً من الانهيار
             throw new Error('Provider information is missing in the request settings.');
         }
         const { provider } = payload.settings;
 
-        // الآن يمكننا استخدام 'provider' بأمان
+        // الآن يمكننا استخدام 'provider' بأمان
         if (provider === 'gemini') await handleGeminiRequest(payload, res);
         else if (provider === 'openrouter') await handleOpenRouterRequest(payload, res);
         else if (provider.startsWith('custom_')) await handleCustomProviderRequest(payload, res);
@@ -684,7 +685,7 @@ async function handleChatRequest(req, res) {
     }
 }
 // =================================================================
-// إصلاح شامل لدعم البحث في Gemini 2.5
+// إصلاح شامل لدعم البحث في Gemini 2.5
 // =================================================================
 
 async function handleGeminiRequest(payload, res) {
@@ -694,7 +695,7 @@ async function handleGeminiRequest(payload, res) {
     await keyManager.tryKeys('gemini', settings.apiKeyRetryStrategy, userApiKeys, async (apiKey) => {
         const genAI = new GoogleGenerativeAI(apiKey);
 
-        // ✅ تفعيل البحث إذا كان مفعّل بالإعدادات أو مفروض من الرسالة
+        // ✅ تفعيل البحث إذا كان مفعّل بالإعدادات أو مفروض من الرسالة
         const triggerByUser = meta && meta.forceWebBrowsing === true;
 const useSearch = (settings.enableWebBrowsing === true || triggerByUser)
                   && (settings.browsingMode || 'gemini') === 'gemini';
@@ -725,10 +726,10 @@ const useSearch = (settings.enableWebBrowsing === true || triggerByUser)
 
         console.log(`🤖 Using model: ${chosenModel} with search: ${useSearch}`);
 
-        // 🚨 الإصلاح الحاسم: لا تستخدم apiVersion مطلقاً مع البحث
+        // 🚨 الإصلاح الحاسم: لا تستخدم apiVersion مطلقاً مع البحث
         let model;
 if (useSearch) {
-  // بدون apiVersion أثناء البحث
+  // بدون apiVersion أثناء البحث
   model = genAI.getGenerativeModel({ model: chosenModel });
   console.log('🔍 Gemini model initialized for search (no apiVersion)');
 } else {
@@ -739,14 +740,14 @@ if (useSearch) {
   );
 }
 
-        // ✅ إعداد أدوات البحث المحسنة
+        // ✅ إعداد أدوات البحث المحسنة
         let tools = undefined;
         if (useSearch) {
           const dynThreshold = typeof settings.dynamicThreshold === 'number' 
             ? Math.max(0, Math.min(1, settings.dynamicThreshold)) 
             : 0.6;
             
-          // ✨✨✨ الإضافة المقترحة للتوافق مع النماذج الجديدة ✨✨✨
+          // ✨✨✨ الإضافة المقترحة للتوافق مع النماذج الجديدة ✨✨✨
           const isLegacyModel = chosenModel.startsWith('gemini-1.5') || chosenModel.startsWith('gemini-2.0');
           
           if (isLegacyModel) {
@@ -763,15 +764,15 @@ if (useSearch) {
                   googleSearch: {}
               }];
           }
-          // ✨✨✨ نهاية الإضافة ✨✨✨
+          // ✨✨✨ نهاية الإضافة ✨✨✨
 
           console.log(`🎯 Search tools configured with threshold: ${dynThreshold}`);
         }
 
-// تجهيز السجل بصيغة contents مع إضافة البرومبت المخصص
+// تجهيز السجل بصيغة contents مع إضافة البرومبت المخصص
         const contents = [];
         
-        // إضافة البرومبت المخصص في البداية إذا كان موجوداً
+        // إضافة البرومبت المخصص في البداية إذا كان موجوداً
         if (settings.customPrompt && settings.customPrompt.trim()) {
             contents.push({
                 role: 'user',
@@ -779,29 +780,29 @@ if (useSearch) {
             });
             contents.push({
                 role: 'model',
-                parts: [{ text: 'مفهوم، سأتبع هذه التعليمات في جميع ردودي.' }]
+                parts: [{ text: 'مفهوم، سأتبع هذه التعليمات في جميع ردودي.' }]
             });
         }
         
-        // إضافة المحادثات السابقة
+        // إضافة المحادثات السابقة
         contents.push(...chatHistory.slice(0, -1).map(msg => ({
             role: msg.role === 'user' ? 'user' : 'model',
             parts: [{ text: msg.content || '' }]
         })));
         
-        // إضافة الرسالة الأخيرة مع المرفقات
+        // إضافة الرسالة الأخيرة مع المرفقات
         contents.push({ role: 'user', parts: buildUserParts(chatHistory[chatHistory.length - 1], attachments) });
 
-        // ✅ إعداد الطلب النهائي
+        // ✅ إعداد الطلب النهائي
         const requestConfig = {
           contents,
           generationConfig: { 
             temperature: settings.temperature || 0.7,
-            maxOutputTokens: 8192 // زيادة الحد الأقصى
+            maxOutputTokens: 8192 // زيادة الحد الأقصى
           }
         };
 
-        // ✅ أضف الأدوات فقط عند البحث
+        // ✅ أضف الأدوات فقط عند البحث
         if (useSearch && tools) {
           requestConfig.tools = tools;
           console.log('🔍 Search tools added to request');
@@ -828,12 +829,12 @@ if (useSearch) {
 
           console.log(`✅ Response generated successfully (${totalText.length} chars)`);
           
-          // إضافة سياق البحث للرد إذا تم استخدام البحث
+          // إضافة سياق البحث للرد إذا تم استخدام البحث
           if (useSearch) {
-            totalText = `[تم البحث في الويب للحصول على أحدث المعلومات]\n\n${totalText}`;
+            totalText = `[تم البحث في الويب للحصول على أحدث المعلومات]\n\n${totalText}`;
           }
 
-          // ✅ إلحاق المصادر مع معالجة محسنة
+          // ✅ إلحاق المصادر مع معالجة محسنة
           if (useSearch && settings.showSources) {
             try {
               console.log('🔍 Extracting search sources...');
@@ -852,7 +853,7 @@ if (useSearch) {
                   const uri = citation?.uri || citation?.sourceUri || citation?.source?.uri;
                   let title = citation?.title || citation?.sourceTitle || citation?.source?.title;
                   
-                  // تنظيف العنوان وتقصيره إذا كان طويلاً
+                  // تنظيف العنوان وتقصيره إذا كان طويلاً
                   if (title && title.length > 80) {
                     title = title.substring(0, 77) + '...';
                   }
@@ -871,7 +872,7 @@ if (useSearch) {
                   const uri = chunk?.web?.uri || chunk?.source?.uri;
                   let title = chunk?.web?.title || chunk?.title || chunk?.source?.title;
                   
-                  // تنظيف العنوان وتقصيره إذا كان طويلاً
+                  // تنظيف العنوان وتقصيره إذا كان طويلاً
                   if (title && title.length > 80) {
                     title = title.substring(0, 77) + '...';
                   }
@@ -883,7 +884,7 @@ if (useSearch) {
                 });
               }
               
-              // استخراج من أي هياكل أخرى محتملة
+              // استخراج من أي هياكل أخرى محتملة
               if (sources.length === 0 && gm?.searchEntryPoints) {
                 console.log(`🎯 Found search entry points`);
                 gm.searchEntryPoints.forEach((entry, i) => {
@@ -912,7 +913,7 @@ if (useSearch) {
                 res.write(`\n\n**🔍 المصادر:**\n${sources.join('\n')}`);
               } else {
                 console.log('⚠️ No sources found in response metadata');
-                // تشخيص إضافي
+                // تشخيص إضافي
                 if (gm) {
                   console.log('🔍 Available grounding metadata keys:', Object.keys(gm));
                 } else {
@@ -931,10 +932,10 @@ if (useSearch) {
         } catch (requestError) {
           console.error('❌ Gemini request failed:', requestError.message);
           
-          // معالجة أخطاء محددة
+          // معالجة أخطاء محددة
           if (requestError.message.includes('Search Grounding is not supported')) {
             console.log('🔄 Retrying without search tools...');
-            // إعادة المحاولة بدون البحث
+            // إعادة المحاولة بدون البحث
             const fallbackConfig = {
               contents,
               generationConfig: { temperature: settings.temperature || 0.7 }
@@ -951,7 +952,7 @@ if (useSearch) {
               if (text) res.write(text);
             }
             
-            res.write('\n\n*ملاحظة: تم تعطيل البحث مؤقتاً لهذا الطلب*');
+            res.write('\n\n*ملاحظة: تم تعطيل البحث مؤقتاً لهذا الطلب*');
             res.end();
           } else {
             throw requestError;
@@ -963,7 +964,7 @@ if (useSearch) {
 
 async function handleOpenRouterRequest(payload, res) {
     const { chatHistory, settings } = payload;
-    // ✨✨✨ الإصلاح هنا: استخراج مفاتيح المستخدم من الإعدادات ✨✨✨
+    // ✨✨✨ الإصلاح هنا: استخراج مفاتيح المستخدم من الإعدادات ✨✨✨
     const userApiKeys = (settings.openrouterApiKeys || []).map(k => k.key).filter(Boolean);
 
     await keyManager.tryKeys('openrouter', settings.apiKeyRetryStrategy, userApiKeys, async (apiKey) => {
@@ -974,19 +975,66 @@ async function handleOpenRouterRequest(payload, res) {
     });
 }
 async function handleCustomProviderRequest(payload, res) {
-    const { chatHistory, settings, customProviders } = payload;
+    const { chatHistory, settings } = payload;
     const providerId = settings.provider;
+    
+    // الحصول على إعدادات المزود من settings.customProviders بدلاً من payload.customProviders
+    const customProviders = settings.customProviders || [];
     const providerConfig = customProviders.find(p => p.id === providerId);
-    if (!providerConfig) throw new Error(`لم يتم العثور على إعدادات المزود المخصص: ${providerId}`);
+    
+    if (!providerConfig) {
+        console.error('Available custom providers:', customProviders.map(p => p.id));
+        throw new Error(`لم يتم العثور على إعدادات المزود المخصص: ${providerId}`);
+    }
+    
+    if (!providerConfig.baseUrl || !providerConfig.baseUrl.trim()) {
+        throw new Error(`رابط API الأساسي غير محدد للمزود: ${providerConfig.name}`);
+    }
+    
     const customKeys = (providerConfig.apiKeys || []).map(k => k.key).filter(Boolean);
+    
+    if (customKeys.length === 0) {
+        throw new Error(`لا توجد مفاتيح API صالحة للمزود: ${providerConfig.name}`);
+    }
+    
     await keyManager.tryKeys(providerId, settings.apiKeyRetryStrategy, customKeys, async (apiKey) => {
         const formattedMessages = formatMessagesForOpenAI(chatHistory);
-        const requestBody = JSON.stringify({ model: settings.model, messages: formattedMessages, temperature: settings.temperature, stream: true });
-        const url = new URL(providerConfig.baseUrl);
-        const options = { hostname: url.hostname, path: url.pathname, method: 'POST', headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' } };
+        const requestBody = JSON.stringify({ 
+            model: settings.model, 
+            messages: formattedMessages, 
+            temperature: settings.temperature, 
+            stream: true 
+        });
+        
+        let url;
+        try {
+            url = new URL(providerConfig.baseUrl);
+        } catch (error) {
+            throw new Error(`رابط API غير صالح للمزود ${providerConfig.name}: ${providerConfig.baseUrl}`);
+        }
+        
+        // تأكد من أن المسار يحتوي على endpoint الصحيح
+        const path = url.pathname.endsWith('/chat/completions') ? 
+                     url.pathname : 
+                     (url.pathname.endsWith('/') ? url.pathname + 'chat/completions' : url.pathname + '/chat/completions');
+        
+        const options = { 
+            hostname: url.hostname, 
+            port: url.port || (url.protocol === 'https:' ? 443 : 80),
+            path: path + (url.search || ''),
+            method: 'POST', 
+            headers: { 
+                'Authorization': `Bearer ${apiKey}`, 
+                'Content-Type': 'application/json',
+                'User-Agent': 'ChatzeusPro/1.0'
+            } 
+        };
+        
+        console.log(`Sending request to custom provider: ${providerConfig.name} at ${url.hostname}${path}`);
         await streamOpenAICompatibleAPI(options, requestBody, res);
     });
 }
+
 function buildUserParts(lastMessage, attachments) {
     const userParts = [];
     if (lastMessage.content) userParts.push({ text: lastMessage.content });
@@ -998,16 +1046,16 @@ function buildUserParts(lastMessage, attachments) {
             } else if (file.dataType === 'text' && file.content) {
                 userParts.push({ text: `\n\n--- محتوى الملف: ${file.name} ---\n${file.content}\n--- نهاية الملف ---` });
             } 
-            // ✨ إزالة الجزء القديم الذي كان يتعامل مع file.fileUrl كـ text
-            // هذا الجزء لم يعد ضرورياً لأننا نستخدم fileData للصور
-            // أما الملفات النصية، فنحن نقرأ المحتوى مباشرة (file.content)
-            // إذا كان هناك أي نوع ملف آخر (binary) لم تتم معالجته، يمكن إهماله حالياً أو التعامل معه لاحقاً.
+            // ✨ إزالة الجزء القديم الذي كان يتعامل مع file.fileUrl كـ text
+            // هذا الجزء لم يعد ضرورياً لأننا نستخدم fileData للصور
+            // أما الملفات النصية، فنحن نقرأ المحتوى مباشرة (file.content)
+            // إذا كان هناك أي نوع ملف آخر (binary) لم تتم معالجته، يمكن إهماله حالياً أو التعامل معه لاحقاً.
         });
     }
     
-    // هذا الشرط يضيف "حلل المرفقات:" فقط إذا كانت هناك مرفقات وليس هناك نص أساسي
-    // مع التغييرات، قد لا يكون ضرورياً جداً إذا كان النموذج ذكياً بما يكفي
-    // ولكن لا بأس من إبقائه كطبقة أمان
+    // هذا الشرط يضيف "حلل المرفقات:" فقط إذا كانت هناك مرفقات وليس هناك نص أساسي
+    // مع التغييرات، قد لا يكون ضرورياً جداً إذا كان النموذج ذكياً بما يكفي
+    // ولكن لا بأس من إبقائه كطبقة أمان
     if (userParts.length > 0 && userParts.every(p => !p.text)) {
         userParts.unshift({ text: "حلل المرفقات:" });
     }
@@ -1015,7 +1063,7 @@ function buildUserParts(lastMessage, attachments) {
 }
 
 
-// إضافة دالة مساعدة لتنسيق حجم الملف
+// إضافة دالة مساعدة لتنسيق حجم الملف
 function formatBytes(bytes, decimals = 2) {
     if (bytes === 0) return '0 بايت';
     const k = 1024;
@@ -1030,7 +1078,7 @@ function formatMessagesForOpenAI(chatHistory) {
 }
 
 // =================================================================
-// 🎧 دالة موحّدة لبث ردّ نموذج واحد لحظيًا إلى كاتب خارجي (onToken)
+// 🎧 دالة موحّدة لبث ردّ نموذج واحد لحظيًا إلى كاتب خارجي (onToken)
 // =================================================================
 async function streamOneModel(provider, model, messages, settings, onToken) {
   const apiKeyStrategy = settings?.apiKeyRetryStrategy || 'sequential';
@@ -1046,7 +1094,7 @@ async function streamOneModel(provider, model, messages, settings, onToken) {
         parts: [{ text: m.content || '' }]
       }));
 
-      // تهيئة الموديل والبث
+      // تهيئة الموديل والبث
       const gm = genAI.getGenerativeModel({ model });
       const result = await gm.generateContentStream({
         contents,
@@ -1125,7 +1173,7 @@ async function streamOneModel(provider, model, messages, settings, onToken) {
 }
 
 // =================================================================
-// 🧩 مُحوّل بث OpenAI-compatible إلى كاتب خارجي (Callback)
+// 🧩 مُحوّل بث OpenAI-compatible إلى كاتب خارجي (Callback)
 // =================================================================
 function streamOpenAIToWriter(options, body, onToken) {
   return new Promise((resolve, reject) => {
@@ -1140,7 +1188,7 @@ function streamOpenAIToWriter(options, body, onToken) {
       apiRes.on('data', (chunk) => {
         buffer += chunk.toString('utf8');
         const parts = buffer.split('\n');
-        buffer = parts.pop(); // أبقِ آخر سطر غير مكتمل
+        buffer = parts.pop(); // أبقِ آخر سطر غير مكتمل
         for (const line of parts) {
           const s = line.trim();
           if (!s || !s.startsWith('data:')) continue;
@@ -1196,29 +1244,29 @@ function streamOpenAICompatibleAPI(options, body, res) {
 
 
 // =================================================================
-// ✨✨✨ أضف هذا الكود الجديد هنا ✨✨✨
+// ✨✨✨ أضف هذا الكود الجديد هنا ✨✨✨
 // =================================================================
 
-// 1. معالج خطأ 404 (Not Found) لمسارات API فقط
-// هذا يلتقط أي طلب لمسار يبدأ بـ /api/ ولم يجد له معالجًا مطابقًا.
+// 1. معالج خطأ 404 (Not Found) لمسارات API فقط
+// هذا يلتقط أي طلب لمسار يبدأ بـ /api/ ولم يجد له معالجًا مطابقًا.
 app.use('/api/', (req, res, next) => {
     res.status(404).json({ message: `API endpoint not found: ${req.method} ${req.originalUrl}` });
 });
 
 
 // =================================================================
-// ✨✨✨ معالج الأخطاء العام (موجود لديك بالفعل) يأتي بعده مباشرة ✨✨✨
+// ✨✨✨ معالج الأخطاء العام (موجود لديك بالفعل) يأتي بعده مباشرة ✨✨✨
 // =================================================================
 app.use((err, req, res, next) => {
     console.error('[GLOBAL ERROR HANDLER]:', err.stack);
 
-    // ✨ تحسين بسيط: تحقق مما إذا كانت الهيدرات قد أُرسلت بالفعل
+    // ✨ تحسين بسيط: تحقق مما إذا كانت الهيدرات قد أُرسلت بالفعل
     if (res.headersSent) {
         return next(err);
     }
 
     res.status(err.status || 500).json({
-        message: err.message || 'حدث خطأ غير متوقع في الخادم.',
+        message: err.message || 'حدث خطأ غير متوقع في الخادم.',
         error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message 
     });
 });
@@ -1230,7 +1278,7 @@ mongoose.connect(process.env.MONGODB_URI)
     .then(() => console.log('✅ Successfully connected to MongoDB Atlas.'))
     .catch(err => {
         console.error('❌ Could not connect to MongoDB Atlas.', err);
-        process.exit(1); // إيقاف الخادم إذا فشل الاتصال
+        process.exit(1); // إيقاف الخادم إذا فشل الاتصال
     });
 
 // =================================================================
