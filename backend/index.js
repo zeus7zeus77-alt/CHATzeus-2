@@ -631,10 +631,9 @@ const keyManager = {
         tryKeys: async function(provider, strategy, customKeys, action) {
     const keyPool = (customKeys && customKeys.length > 0) ? customKeys : this.keys[provider] || [];
     if (keyPool.length === 0) {
-        const providerName = provider.startsWith('custom_') ? 'المزود المخصص' : provider;
-        throw new Error(`لا توجد مفاتيح API متاحة للمزود: ${providerName}. يرجى إضافة مفاتيح API في الإعدادات.`);
+        throw new Error(`No API keys available for provider: ${provider}`);
     }
-
+    
     let tryCount = 0; // ✨ تعريف tryCount هنا
     while (tryCount < keyPool.length) { // ✨ حلقة while بدل continue خارج الحلقة
         const keyIndex = (this.indices[provider] || 0);
