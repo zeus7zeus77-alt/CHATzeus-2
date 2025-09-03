@@ -975,66 +975,19 @@ async function handleOpenRouterRequest(payload, res) {
     });
 }
 async function handleCustomProviderRequest(payload, res) {
-    const { chatHistory, settings } = payload;
+    const { chatHistory, settings, customProviders } = payload;
     const providerId = settings.provider;
-    
-    // الحصول على إعدادات المزود من settings.customProviders بدلاً من payload.customProviders
-    const customProviders = settings.customProviders || [];
     const providerConfig = customProviders.find(p => p.id === providerId);
-    
-    if (!providerConfig) {
-        console.error('Available custom providers:', customProviders.map(p => p.id));
-        throw new Error(`لم يتم العثور على إعدادات المزود المخصص: ${providerId}`);
-    }
-    
-    if (!providerConfig.baseUrl || !providerConfig.baseUrl.trim()) {
-        throw new Error(`رابط API الأساسي غير محدد للمزود: ${providerConfig.name}`);
-    }
-    
+    if (!providerConfig) throw new Error(`لم يتم العثور على إعدادات المزود المخصص: ${providerId}`);
     const customKeys = (providerConfig.apiKeys || []).map(k => k.key).filter(Boolean);
-    
-    if (customKeys.length === 0) {
-        throw new Error(`لا توجد مفاتيح API صالحة للمزود: ${providerConfig.name}`);
-    }
-    
     await keyManager.tryKeys(providerId, settings.apiKeyRetryStrategy, customKeys, async (apiKey) => {
         const formattedMessages = formatMessagesForOpenAI(chatHistory);
-        const requestBody = JSON.stringify({ 
-            model: settings.model, 
-            messages: formattedMessages, 
-            temperature: settings.temperature, 
-            stream: true 
-        });
-        
-        let url;
-        try {
-            url = new URL(providerConfig.baseUrl);
-        } catch (error) {
-            throw new Error(`رابط API غير صالح للمزود ${providerConfig.name}: ${providerConfig.baseUrl}`);
-        }
-        
-        // تأكد من أن المسار يحتوي على endpoint الصحيح
-        const path = url.pathname.endsWith('/chat/completions') ? 
-                     url.pathname : 
-                     (url.pathname.endsWith('/') ? url.pathname + 'chat/completions' : url.pathname + '/chat/completions');
-        
-        const options = { 
-            hostname: url.hostname, 
-            port: url.port || (url.protocol === 'https:' ? 443 : 80),
-            path: path + (url.search || ''),
-            method: 'POST', 
-            headers: { 
-                'Authorization': `Bearer ${apiKey}`, 
-                'Content-Type': 'application/json',
-                'User-Agent': 'ChatzeusPro/1.0'
-            } 
-        };
-        
-        console.log(`Sending request to custom provider: ${providerConfig.name} at ${url.hostname}${path}`);
+        const requestBody = JSON.stringify({ model: settings.model, messages: formattedMessages, temperature: settings.temperature, stream: true });
+        const url = new URL(providerConfig.baseUrl);
+        const options = { hostname: url.hostname, path: url.pathname, method: 'POST', headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' } };
         await streamOpenAICompatibleAPI(options, requestBody, res);
     });
 }
-
 function buildUserParts(lastMessage, attachments) {
     const userParts = [];
     if (lastMessage.content) userParts.push({ text: lastMessage.content });
