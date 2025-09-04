@@ -696,8 +696,7 @@ async function handleGeminiRequest(payload, res) {
 
         // ✅ تفعيل البحث إذا كان مفعّل بالإعدادات أو مفروض من الرسالة
         const triggerByUser = meta && meta.forceWebBrowsing === true;
-const useSearch = (settings.enableWebBrowsing === true || triggerByUser)
-                  && (settings.browsingMode || 'gemini') === 'gemini';
+        const useSearch = (settings.enableWebBrowsing === true || triggerByUser);
 
         console.log(`🔍 Search Debug:`, {
           enableWebBrowse: settings.enableWebBrowse,
@@ -725,19 +724,18 @@ const useSearch = (settings.enableWebBrowsing === true || triggerByUser)
 
         console.log(`🤖 Using model: ${chosenModel} with search: ${useSearch}`);
 
-        // 🚨 الإصلاح الحاسم: لا تستخدم apiVersion مطلقاً مع البحث
         let model;
-if (useSearch) {
-  // بدون apiVersion أثناء البحث
-  model = genAI.getGenerativeModel({ model: chosenModel });
-  console.log('🔍 Gemini model initialized for search (no apiVersion)');
-} else {
-  // apiVersion كوسيط ثانٍ
-  model = genAI.getGenerativeModel(
-    { model: chosenModel },
-    { apiVersion: "v1beta" }
-  );
-}
+        if (useSearch) {
+          // بدون apiVersion أثناء البحث
+          model = genAI.getGenerativeModel({ model: chosenModel });
+          console.log('🔍 Gemini model initialized for search (no apiVersion)');
+        } else {
+          // apiVersion كوسيط ثانٍ
+          model = genAI.getGenerativeModel(
+            { model: chosenModel },
+            { apiVersion: "v1beta" }
+          );
+        }
 
         // ✅ إعداد أدوات البحث المحسنة
         let tools = undefined;
@@ -746,7 +744,6 @@ if (useSearch) {
             ? Math.max(0, Math.min(1, settings.dynamicThreshold)) 
             : 0.6;
             
-          // ✨✨✨ الإضافة المقترحة للتوافق مع النماذج الجديدة ✨✨✨
           const isLegacyModel = chosenModel.startsWith('gemini-1.5') || chosenModel.startsWith('gemini-2.0');
           
           if (isLegacyModel) {
@@ -763,15 +760,10 @@ if (useSearch) {
                   googleSearch: {}
               }];
           }
-          // ✨✨✨ نهاية الإضافة ✨✨✨
-
           console.log(`🎯 Search tools configured with threshold: ${dynThreshold}`);
         }
 
-// تجهيز السجل بصيغة contents مع إضافة البرومبت المخصص
         const contents = [];
-        
-        // إضافة البرومبت المخصص في البداية إذا كان موجوداً
         if (settings.customPrompt && settings.customPrompt.trim()) {
             contents.push({
                 role: 'user',
@@ -783,25 +775,21 @@ if (useSearch) {
             });
         }
         
-        // إضافة المحادثات السابقة
         contents.push(...chatHistory.slice(0, -1).map(msg => ({
             role: msg.role === 'user' ? 'user' : 'model',
             parts: [{ text: msg.content || '' }]
         })));
         
-        // إضافة الرسالة الأخيرة مع المرفقات
         contents.push({ role: 'user', parts: buildUserParts(chatHistory[chatHistory.length - 1], attachments) });
 
-        // ✅ إعداد الطلب النهائي
         const requestConfig = {
           contents,
           generationConfig: { 
             temperature: settings.temperature || 0.7,
-            maxOutputTokens: 8192 // زيادة الحد الأقصى
+            maxOutputTokens: 8192
           }
         };
 
-        // ✅ أضف الأدوات فقط عند البحث
         if (useSearch && tools) {
           requestConfig.tools = tools;
           console.log('🔍 Search tools added to request');
@@ -809,13 +797,20 @@ if (useSearch) {
 
         try {
           console.log('📤 Sending request to Gemini...');
-          const result = await model.generateContentStream(requestConfig);
 
-          // بث الرد
+          // ✅ هنا نقوم بالتحقق من استخدام البحث، ونرسل الإشارة فورًا.
           res.writeHead(200, {
             'Content-Type': 'text/plain; charset=utf-8',
             'Transfer-Encoding': 'chunked'
           });
+
+          if (useSearch) {
+            console.log('🔍 Sending search indicator...');
+            // قم بإرسال هذه العبارة إلى العميل فورًا
+            res.write('[تم البحث في الويب للحصول على أحدث المعلومات]');
+          }
+
+          const result = await model.generateContentStream(requestConfig);
 
           let totalText = '';
           for await (const chunk of result.stream) {
@@ -828,11 +823,6 @@ if (useSearch) {
 
           console.log(`✅ Response generated successfully (${totalText.length} chars)`);
           
-          // إضافة سياق البحث للرد إذا تم استخدام البحث
-          if (useSearch) {
-            totalText = `[تم البحث في الويب للحصول على أحدث المعلومات]\n\n${totalText}`;
-          }
-
           // ✅ إلحاق المصادر مع معالجة محسنة
           if (useSearch && settings.showSources) {
             try {
@@ -844,48 +834,35 @@ if (useSearch) {
               console.log('📊 Grounding metadata:', JSON.stringify(gm, null, 2));
               
               const sources = [];
-
-              // استخراج المصادر من citations
               if (Array.isArray(gm?.citations)) {
-                console.log(`📚 Found ${gm.citations.length} citations`);
                 gm.citations.forEach((citation, i) => {
                   const uri = citation?.uri || citation?.sourceUri || citation?.source?.uri;
                   let title = citation?.title || citation?.sourceTitle || citation?.source?.title;
-                  
-                  // تنظيف العنوان وتقصيره إذا كان طويلاً
                   if (title && title.length > 80) {
                     title = title.substring(0, 77) + '...';
                   }
                   if (!title) title = `مصدر ${i + 1}`;
-                  
                   if (uri && uri.startsWith('http')) {
                     sources.push(`- [${title}](${uri})`);
                   }
                 });
               }
 
-              // استخراج من groundingChunks كبديل
               if (sources.length === 0 && Array.isArray(gm?.groundingChunks)) {
-                console.log(`🌐 Found ${gm.groundingChunks.length} grounding chunks`);
                 gm.groundingChunks.forEach((chunk, i) => {
                   const uri = chunk?.web?.uri || chunk?.source?.uri;
                   let title = chunk?.web?.title || chunk?.title || chunk?.source?.title;
-                  
-                  // تنظيف العنوان وتقصيره إذا كان طويلاً
                   if (title && title.length > 80) {
                     title = title.substring(0, 77) + '...';
                   }
                   if (!title) title = `مصدر ${i + 1}`;
-                  
                   if (uri && uri.startsWith('http')) {
                     sources.push(`- [${title}](${uri})`);
                   }
                 });
               }
               
-              // استخراج من أي هياكل أخرى محتملة
               if (sources.length === 0 && gm?.searchEntryPoints) {
-                console.log(`🎯 Found search entry points`);
                 gm.searchEntryPoints.forEach((entry, i) => {
                   if (entry?.renderedContent && entry.url) {
                     const title = entry.title || `نتيجة البحث ${i + 1}`;
@@ -894,9 +871,7 @@ if (useSearch) {
                 });
               }
 
-              // استخراج من groundingChunks كبديل
               if (sources.length === 0 && Array.isArray(gm?.groundingChunks)) {
-                console.log(`🌐 Found ${gm.groundingChunks.length} grounding chunks`);
                 gm.groundingChunks.forEach((chunk, i) => {
                   const uri = chunk?.web?.uri || chunk?.source?.uri;
                   const title = chunk?.web?.title || chunk?.title || `مصدر ${i + 1}`;
@@ -906,13 +881,11 @@ if (useSearch) {
                 });
               }
 
-              // عرض المصادر
               if (sources.length > 0) {
                 console.log(`✅ Found ${sources.length} sources`);
                 res.write(`\n\n**🔍 المصادر:**\n${sources.join('\n')}`);
               } else {
                 console.log('⚠️ No sources found in response metadata');
-                // تشخيص إضافي
                 if (gm) {
                   console.log('🔍 Available grounding metadata keys:', Object.keys(gm));
                 } else {
@@ -931,10 +904,8 @@ if (useSearch) {
         } catch (requestError) {
           console.error('❌ Gemini request failed:', requestError.message);
           
-          // معالجة أخطاء محددة
           if (requestError.message.includes('Search Grounding is not supported')) {
             console.log('🔄 Retrying without search tools...');
-            // إعادة المحاولة بدون البحث
             const fallbackConfig = {
               contents,
               generationConfig: { temperature: settings.temperature || 0.7 }
@@ -959,6 +930,7 @@ if (useSearch) {
         }
     });
 }
+
 
 
 async function handleOpenRouterRequest(payload, res) {
