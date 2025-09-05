@@ -808,23 +808,35 @@ if (useSearch) {
         }
 
         try {
-          console.log('📤 Sending request to Gemini...');
-          const result = await model.generateContentStream(requestConfig);
-
-          // بث الرد
-          res.writeHead(200, {
-            'Content-Type': 'text/plain; charset=utf-8',
-            'Transfer-Encoding': 'chunked'
-          });
-
-          let totalText = '';
-          for await (const chunk of result.stream) {
-            const text = chunk.text();
-            if (text) {
-              totalText += text;
-              res.write(text);
+            console.log('📤 Sending request to Gemini...');
+            
+            // بث الرد
+            res.writeHead(200, {
+                'Content-Type': 'text/plain; charset=utf-8',
+                'Transfer-Encoding': 'chunked'
+            });
+            
+            // إرسال إشارة البحث إذا كان البحث مفعل
+            if (useSearch) {
+                res.write('🔍 SEARCH_START 🔍');
+                console.log('🔍 Search indicator sent to client');
             }
-          }
+            
+            const result = await model.generateContentStream(requestConfig);
+            
+            let totalText = '';
+            let isFirstChunk = true;
+            for await (const chunk of result.stream) {
+                const text = chunk.text();
+                if (text) {
+                    if (isFirstChunk && useSearch) {
+                        res.write('🔍 SEARCH_END 🔍');
+                        isFirstChunk = false;
+                    }
+                    totalText += text;
+                    res.write(text);
+                }
+            }
 
           console.log(`✅ Response generated successfully (${totalText.length} chars)`);
           
