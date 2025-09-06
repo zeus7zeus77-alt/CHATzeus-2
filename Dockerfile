@@ -1,18 +1,23 @@
-# Dockerfile بسيط وموثوق لتطبيق Express
+# 1. استخدم صورة Node.js رسمية كنقطة بداية
 FROM node:18-alpine
 
-# مجلد العمل
-WORKDIR /usr/src/app
+# 2. أنشئ مجلد العمل داخل الحاوية
+WORKDIR /app
 
-# نسخ ملفات التعريف وتثبيت الاعتمادات
-COPY package*.json ./
-RUN npm install --production
+# ✨ الخطوة الجديدة: حدد أن كل العمليات القادمة يجب أن تتم داخل مجلد backend
+WORKDIR /app/backend
 
-# نسخ باقي المشروع
-COPY . .
+# 3. انسخ ملفات package.json و package-lock.json من مجلد backend المحلي
+COPY backend/package*.json ./
 
-# تأكد أن الخادم يستمع لـ process.env.PORT (كودك يفعل ذلك)
+# 4. ثبّت الاعتماديات
+RUN npm install
+
+# 5. انسخ بقية ملفات المشروع من مجلد backend المحلي إلى مجلد العمل الحالي
+COPY backend/ .
+
+# 6. عرّف المنفذ الذي سيعمل عليه الخادم
 EXPOSE 3000
 
-# أمر التشغيل
-CMD ["node", "index.js"]
+# 7. الأمر الذي سيتم تشغيله عند بدء الحاوية
+CMD [ "node", "index.js" ]
